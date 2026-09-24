@@ -1,0 +1,1603 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Visor KML Dashboard</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --blue:#1a73e8; --text:#202124; --muted:#5f6368; --line:#dadce0; --hover:#f1f3f4;
+  --surface:#f6f7f9; --card:#fff; --dashH:50vh;
+  --ink2:#52514e;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden;background:#fff;color:var(--text);font:14px/1.35 Roboto,Arial,sans-serif}
+button{font:inherit;color:inherit}
+input,select{font:inherit}
+
+/* ---------- mapa ---------- */
+#mapWrap{position:absolute;left:0;right:0;top:0;bottom:0;transition:bottom .25s ease}
+body.dash-open #mapWrap{bottom:var(--dashH)}
+body.dragging #mapWrap,body.dragging #dash{transition:none}
+#map{position:absolute;inset:0;background:#e9e7e1}
+
+/* ---------- panel de capas estilo My Maps ---------- */
+#panel{position:absolute;top:12px;left:12px;width:310px;max-height:calc(100% - 24px);background:#fff;
+  box-shadow:0 1px 4px rgba(0,0,0,.3);border-radius:2px;z-index:1000;display:flex;flex-direction:column}
+#panel.collapsed #panelBody{display:none}
+.phead{padding:14px 12px 10px 16px;display:flex;gap:6px;align-items:flex-start}
+.phead .t{flex:1;min-width:0}
+#mapTitle{font-size:16px;font-weight:500;outline:none;border-bottom:1px solid transparent;word-break:break-word}
+#mapTitle:focus{border-bottom-color:var(--blue)}
+#mapSub{font-size:12px;color:var(--muted);margin-top:4px}
+.pactions{display:flex;flex-wrap:wrap;gap:2px 10px;padding:6px 12px 8px;background:#f1f3f4;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.lnk{background:none;border:0;padding:5px 4px;cursor:pointer;font-size:13px;color:var(--text);display:inline-flex;align-items:center;gap:6px;border-radius:3px}
+.lnk:hover{background:#e3e5e8}
+.lnk svg{width:18px;height:18px;fill:var(--muted)}
+#panelBody{display:flex;flex-direction:column;min-height:0;flex:1}
+#layers{overflow:auto;flex:1;min-height:60px}
+.empty{padding:22px 18px;color:var(--muted);font-size:13px;text-align:center}
+.empty b{color:var(--text)}
+.layer{border-bottom:1px solid var(--line);padding:6px 0 8px}
+.lhead{display:flex;align-items:center;gap:6px;padding:4px 6px 2px 12px}
+.lhead input{margin:0;width:16px;height:16px;accent-color:#3c4043;flex:none}
+.lname{flex:1;font-weight:500;font-size:13px;text-transform:uppercase;letter-spacing:.2px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:default}
+.lcount{font-size:12px;color:var(--muted);font-weight:400;text-transform:none}
+.ibtn{background:none;border:0;cursor:pointer;width:28px;height:28px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;flex:none;color:var(--muted)}
+.ibtn:hover{background:var(--hover)}
+.ibtn svg{width:18px;height:18px;fill:currentColor}
+.lsub{padding:0 12px 2px 34px;display:flex;align-items:center;gap:6px}
+.lsub svg{width:14px;height:14px;fill:var(--blue);flex:none}
+.stylesel{border:0;background:none;color:var(--blue);font-size:12px;padding:3px 0;cursor:pointer;max-width:230px;outline:none}
+.stylesel:hover{text-decoration:underline}
+.cats{padding:2px 8px 0 30px;max-height:260px;overflow:auto}
+.cat{display:flex;align-items:center;gap:6px;padding:2px 4px;border-radius:3px;font-size:12.5px}
+.cat:hover{background:var(--hover)}
+.cat input{margin:0;width:14px;height:14px;accent-color:#3c4043;flex:none}
+.cat .lbl{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-transform:uppercase}
+.cat .n{color:var(--muted);font-size:12px}
+.sw{border:0;background:none;padding:2px;cursor:pointer;border-radius:3px;display:inline-flex;flex:none;line-height:0}
+.sw:hover{background:#e3e5e8}
+.pfoot{border-top:1px solid var(--line);padding:8px 12px;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted)}
+.pfoot select{flex:1;border:1px solid var(--line);border-radius:4px;padding:4px 6px;background:#fff}
+
+/* ---------- buscador ---------- */
+#search{position:absolute;top:12px;left:334px;z-index:1000;display:flex;box-shadow:0 1px 4px rgba(0,0,0,.3);border-radius:2px;background:#fff}
+#search input{border:0;outline:0;padding:0 12px;width:270px;height:34px;font-size:14px;border-radius:2px 0 0 2px}
+#search button{border:0;background:var(--blue);width:48px;cursor:pointer;border-radius:0 2px 2px 0;display:flex;align-items:center;justify-content:center}
+#search button svg{width:18px;height:18px;fill:#fff}
+#searchRes{position:absolute;top:36px;left:0;right:0;background:#fff;box-shadow:0 2px 6px rgba(0,0,0,.25);max-height:340px;overflow:auto;display:none}
+#searchRes .sh{font-size:11px;color:var(--muted);padding:8px 12px 4px;text-transform:uppercase;letter-spacing:.4px}
+#searchRes .si{padding:7px 12px;cursor:pointer;font-size:13px;border-top:1px solid #f1f3f4}
+#searchRes .si:hover{background:var(--hover)}
+#searchRes .si small{display:block;color:var(--muted);font-size:11.5px}
+
+/* ---------- botón dashboard ---------- */
+#dashBtn{position:absolute;top:12px;right:12px;z-index:1000;border:0;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.3);
+  border-radius:20px;padding:0 16px 0 12px;height:38px;display:flex;align-items:center;gap:8px;font-weight:500;cursor:pointer;color:var(--text)}
+#dashBtn:hover{background:#f8f9fa}
+#dashBtn svg{width:20px;height:20px;fill:var(--blue)}
+body.dash-open #dashBtn{background:var(--blue);color:#fff}
+body.dash-open #dashBtn svg{fill:#fff}
+
+/* ---------- marcadores / etiquetas ---------- */
+.mk{background:none;border:0}
+.mk svg{display:block;filter:drop-shadow(0 1px 1px rgba(0,0,0,.35))}
+.plabel{background:transparent;border:0;box-shadow:none;font-weight:700;font-size:11px;color:#202124;
+  text-shadow:0 0 3px #fff,0 0 3px #fff,0 0 3px #fff;padding:0}
+.plabel:before{display:none}
+.leaflet-popup-content-wrapper{border-radius:8px}
+.leaflet-popup-content{margin:12px 14px;font:13px/1.4 Roboto,Arial,sans-serif;max-height:340px;overflow:auto}
+.pp-t{font-size:15px;font-weight:500;margin-bottom:2px}
+.pp-l{font-size:11.5px;color:var(--muted);margin-bottom:8px}
+.pp table{border-collapse:collapse;width:100%}
+.pp td{padding:3px 0;vertical-align:top;border-top:1px solid #f1f3f4}
+.pp td:first-child{color:var(--muted);padding-right:10px;white-space:nowrap;font-size:12px}
+.pp img{max-width:100%;border-radius:4px;margin-top:6px}
+.pp .desc{margin-top:8px;color:#3c4043;font-size:12.5px}
+.pp .zbtn{margin-top:10px;border:1px solid var(--line);background:#fff;border-radius:16px;padding:5px 12px;cursor:pointer;font-size:12px;color:var(--blue)}
+.pp .zbtn:hover{background:#e8f0fe}
+
+/* ---------- popover genérico ---------- */
+#pop{position:fixed;z-index:3000;background:#fff;border-radius:6px;box-shadow:0 4px 18px rgba(0,0,0,.25);display:none;min-width:200px;max-width:320px;max-height:70vh;overflow:auto}
+.ph{font-size:11px;letter-spacing:.5px;text-transform:uppercase;color:var(--muted);padding:12px 14px 6px}
+.pgrid{display:grid;grid-template-columns:repeat(10,22px);gap:5px;padding:0 14px 6px}
+.pgrid button{width:22px;height:22px;border-radius:50%;border:0;cursor:pointer;padding:0;position:relative}
+.pgrid button.on:after{content:"";position:absolute;inset:-3px;border:2px solid #202124;border-radius:50%}
+.gl{display:grid;grid-template-columns:repeat(8,30px);gap:4px;padding:0 14px 6px;max-height:210px;overflow:auto}
+.gl button,.shp button{width:30px;height:30px;border:1px solid var(--line);background:#fff;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0}
+.gl button svg{width:18px;height:18px;fill:#3c4043}
+.gl button.on,.shp button.on{border-color:var(--blue);background:#e8f0fe}
+.shp{display:flex;gap:6px;padding:0 14px 6px}
+.shp button{width:auto;padding:0 8px;font-size:12px;gap:4px}
+.prow{display:flex;align-items:center;gap:10px;padding:4px 14px 8px;font-size:12.5px}
+.prow input[type=range]{flex:1}
+.prow input[type=color]{width:34px;height:24px;border:1px solid var(--line);padding:0;background:#fff;cursor:pointer}
+.menu button{display:flex;width:100%;text-align:left;border:0;background:none;padding:9px 16px;cursor:pointer;font-size:13px;gap:10px;align-items:center}
+.menu button:hover{background:var(--hover)}
+.menu button.danger{color:#c5221f}
+.fl{padding:8px 12px}
+.fl input[type=search],.fl input[type=text],.fl input[type=number],.fl input[type=date]{width:100%;border:1px solid var(--line);border-radius:4px;padding:6px 8px;outline:none}
+.fl input:focus{border-color:var(--blue)}
+.fl .bt{display:flex;gap:8px;margin:8px 0 4px}
+.fl .bt button{border:0;background:none;color:var(--blue);cursor:pointer;font-size:12px;padding:2px 0}
+.flist{max-height:300px;overflow:auto;margin:0 -4px}
+.flist label{display:flex;align-items:center;gap:8px;padding:4px;border-radius:3px;cursor:pointer;font-size:12.5px}
+.flist label:hover{background:var(--hover)}
+.flist label span:not(.dot){flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.flist label em{font-style:normal;color:var(--muted);font-size:11.5px}
+.flist input{accent-color:var(--blue);margin:0}
+.fl .two{display:flex;gap:8px}
+.fl .two div{flex:1}
+.fl .two label{font-size:11px;color:var(--muted)}
+
+/* ---------- dashboard ---------- */
+#splitter{position:absolute;left:0;right:0;height:10px;bottom:calc(var(--dashH) - 5px);cursor:ns-resize;z-index:1500;display:none}
+#splitter:after{content:"";position:absolute;left:50%;top:3px;width:44px;height:4px;margin-left:-22px;border-radius:2px;background:#bdc1c6}
+body.dash-open #splitter{display:block}
+#dash{position:absolute;left:0;right:0;bottom:0;height:var(--dashH);background:var(--surface);border-top:1px solid var(--line);
+  transform:translateY(101%);transition:transform .25s ease;display:flex;flex-direction:column;z-index:1200}
+body.dash-open #dash{transform:none}
+.dtop{background:#fff;border-bottom:1px solid var(--line);padding:10px 16px 8px}
+.drow{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.dtitle{font-size:16px;font-weight:500;margin-right:6px}
+.dmeta{font-size:12.5px;color:var(--muted);flex:1}
+.btn{border:1px solid var(--line);background:#fff;border-radius:4px;padding:5px 12px;cursor:pointer;font-size:12.5px;display:inline-flex;align-items:center;gap:6px;color:#3c4043}
+.btn:hover{background:#f8f9fa}
+.btn svg{width:16px;height:16px;fill:currentColor}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;max-height:76px;overflow:auto}
+.chip{border:1px solid var(--line);background:#fff;border-radius:16px;padding:4px 10px;font-size:12px;cursor:pointer;display:inline-flex;align-items:center;gap:4px;white-space:nowrap;color:#3c4043}
+.chip:hover{background:#f8f9fa}
+.chip.on{background:#e8f0fe;border-color:#aecbfa;color:#174ea6;font-weight:500}
+.chip.fixed{border-style:dashed}
+.chip .cv{opacity:.7}
+.chip svg{width:14px;height:14px;fill:currentColor}
+.dbody{flex:1;overflow:auto;padding:12px 16px 20px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:12px}
+.card{background:var(--card);border:1px solid #e6e7ea;border-radius:8px;padding:12px 14px;min-width:0}
+.card.wide{grid-column:1/-1}
+.ch{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap}
+.ch h3{margin:0;font-size:13.5px;font-weight:500;flex:1;min-width:120px}
+.ch select{border:1px solid var(--line);border-radius:4px;padding:3px 6px;font-size:12px;background:#fff;max-width:200px}
+.ch .x{font-size:12px;color:var(--muted)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.kpi{background:#fff;border:1px solid #e6e7ea;border-radius:8px;padding:10px 14px}
+.kpi .k{font-size:12px;color:var(--muted)}
+.kpi .v{font-size:26px;font-weight:500;margin-top:2px;letter-spacing:-.3px}
+.kpi .s{font-size:12px;color:var(--ink2);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.meter{height:6px;background:#eceae6;border-radius:3px;margin-top:6px;overflow:hidden}
+.meter i{display:block;height:100%;background:#2a78d6;border-radius:3px}
+.cwrap{position:relative;width:100%}
+.nodata{color:var(--muted);font-size:13px;padding:18px 0;text-align:center}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:8px}
+.stats div{background:#f8f9fa;border-radius:6px;padding:6px 8px}
+.stats b{display:block;font-size:15px;font-weight:500}
+.stats span{font-size:11px;color:var(--muted)}
+.tblbar{display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
+.tblbar input{border:1px solid var(--line);border-radius:4px;padding:5px 8px;width:220px;outline:none}
+.tblbar .pg{margin-left:auto;display:flex;gap:6px;align-items:center;font-size:12px;color:var(--muted)}
+.twrap{overflow:auto;max-height:420px;border:1px solid #eceae6;border-radius:6px}
+table.t{border-collapse:collapse;font-size:12px;width:100%}
+table.t th{position:sticky;top:0;background:#f8f9fa;text-align:left;font-weight:500;padding:7px 10px;border-bottom:1px solid var(--line);white-space:nowrap;cursor:pointer;color:#3c4043}
+table.t td{padding:6px 10px;border-bottom:1px solid #f1f3f4;white-space:nowrap;max-width:260px;overflow:hidden;text-overflow:ellipsis}
+table.t tbody tr{cursor:pointer}
+table.t tbody tr:hover{background:#f1f6fe}
+.dot{flex:none;display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;vertical-align:0}
+
+/* ---------- varios ---------- */
+#drop{position:fixed;inset:0;background:rgba(26,115,232,.12);border:3px dashed var(--blue);z-index:4000;display:none;align-items:center;justify-content:center;font-size:20px;color:#174ea6;font-weight:500;pointer-events:none}
+body.dropping #drop{display:flex}
+#toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#323232;color:#fff;padding:10px 18px;border-radius:4px;font-size:13px;z-index:5000;display:none;max-width:80vw}
+#loading{position:fixed;inset:0;background:rgba(255,255,255,.6);z-index:4500;display:none;align-items:center;justify-content:center;font-weight:500}
+#loading.on{display:flex}
+.leaflet-control-attribution{font-size:10px}
+
+#splitter{touch-action:none}
+@media (max-width:760px){
+  #panel{top:8px;left:8px;width:calc(100% - 16px);max-height:55%}
+  .phead{padding:10px 8px 8px 12px}
+  #search{top:auto;bottom:16px;left:8px;right:8px}
+  #search input{width:auto;flex:1;height:42px;font-size:16px}
+  #searchRes{top:auto;bottom:44px}
+  #dashBtn{top:auto;bottom:70px;right:8px;height:44px}
+  body.dash-open #search,body.dash-open #panel{display:none}
+  body.dash-open #dashBtn{bottom:auto;top:8px}
+  .leaflet-control-zoom{display:none}
+  .lhead input,.cat input{width:20px;height:20px}
+  .cat{padding:5px 4px;font-size:13.5px}
+  .ibtn{width:36px;height:36px}
+  .dtop{padding:8px 10px 6px}
+  .dmeta{flex-basis:100%;order:3}
+  .drow .btn{padding:5px 8px;font-size:12px}
+  .dtop{position:relative}
+  #dashClose{position:absolute;right:4px;top:2px}
+  .dtitle{margin-right:40px}
+  .chips{flex-wrap:nowrap;overflow-x:auto;max-height:none;padding-bottom:4px}
+  .dbody{padding:10px 8px 24px}
+  .grid{grid-template-columns:1fr}
+  .kpis{grid-template-columns:1fr 1fr}
+  .kpi .v{font-size:22px}
+  .tblbar input{width:100%}
+  #pop{max-width:94vw}
+  .flist label{padding:8px 4px;font-size:14px}
+  #splitter{height:24px;bottom:calc(var(--dashH) - 12px)}
+}
+</style>
+</head>
+<body>
+
+<div id="mapWrap">
+  <div id="map"></div>
+
+  <aside id="panel">
+    <div class="phead">
+      <div class="t">
+        <div id="mapTitle" contenteditable="true" spellcheck="false">Mapa sin título</div>
+        <div id="mapSub">Sin capas cargadas</div>
+      </div>
+      <button class="ibtn" id="collapseBtn" title="Contraer / expandir"><svg viewBox="0 0 24 24"><path d="M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6z"/></svg></button>
+    </div>
+    <div id="panelBody">
+      <div class="pactions">
+        <button class="lnk" id="addBtn"><svg viewBox="0 0 24 24"><path d="M11.99 18.54l-7.37-5.73L3 14.07l9 7 9-7-1.63-1.27zM12 16l7.36-5.73L21 9l-9-7-9 7 1.63 1.27L12 16z"/></svg>Añadir capa (KML/KMZ)</button>
+        <button class="lnk" id="fitAllBtn"><svg viewBox="0 0 24 24"><path d="M3 5v4h2V5h4V3H5c-1.1 0-2 .9-2 2zm2 10H3v4c0 1.1.9 2 2 2h4v-2H5v-4zm14 4h-4v2h4c1.1 0 2-.9 2-2v-4h-2v4zm0-16h-4v2h4v4h2V5c0-1.1-.9-2-2-2z"/></svg>Ver todo</button>
+      </div>
+      <div id="layers"></div>
+      <div class="pfoot">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="#5f6368"><path d="M20.5 3l-.16.03L15 5.1 9 3 3.36 4.9c-.21.07-.36.25-.36.48V20.5c0 .28.22.5.5.5l.16-.03L9 18.9l6 2.1 5.64-1.9c.21-.07.36-.25.36-.48V3.5c0-.28-.22-.5-.5-.5zM15 19l-6-2.11V5l6 2.11V19z"/></svg>
+        Mapa base
+        <select id="baseSel">
+          <option value="voyager">CARTO Voyager</option>
+          <option value="positron">CARTO Positron (claro)</option>
+          <option value="dark">CARTO Dark Matter</option>
+          <option value="sat">Satélite (Esri)</option>
+          <option value="osm">OpenStreetMap</option>
+        </select>
+      </div>
+    </div>
+  </aside>
+
+  <div id="search">
+    <input id="searchIn" type="text" placeholder="Buscar en las capas o una dirección" autocomplete="off">
+    <button id="searchBtn" title="Buscar"><svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0016 9.5 6.5 6.5 0 109.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg></button>
+    <div id="searchRes"></div>
+  </div>
+
+  <button id="dashBtn"><svg viewBox="0 0 24 24"><path d="M5 9.2h3V19H5zM10.6 5h2.8v14h-2.8zm5.6 8H19v6h-2.8z"/></svg><span>Dashboard</span></button>
+</div>
+
+<div id="splitter" title="Arrastrar para cambiar el tamaño"></div>
+
+<section id="dash">
+  <div class="dtop">
+    <div class="drow">
+      <span class="dtitle">Dashboard</span>
+      <span class="dmeta" id="dmeta"></span>
+      <label class="btn" title="Contar solo lo que se ve en el mapa"><input type="checkbox" id="viewOnly" style="margin:0"> Solo vista del mapa</label>
+      <button class="btn" id="clearBtn"><svg viewBox="0 0 24 24"><path d="M10 18h4v-2h-4v2zM3 6v2h18V6H3zm3 7h12v-2H6v2z"/></svg>Limpiar filtros</button>
+      <button class="btn" id="csvBtn"><svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>CSV</button>
+      <button class="btn" id="kmlBtn"><svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>KML filtrado</button>
+      <button class="ibtn" id="dashClose" title="Cerrar dashboard"><svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button>
+    </div>
+    <div class="chips" id="chips"></div>
+  </div>
+  <div class="dbody" id="dbody"></div>
+</section>
+
+<div id="pop"></div>
+<div id="drop">Soltá los archivos KML / KMZ para cargarlos</div>
+<div id="toast"></div>
+<div id="loading">Procesando archivo…</div>
+<input type="file" id="fileIn" accept=".kml,.kmz" multiple hidden>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tmcw/togeojson@5.8.1/dist/togeojson.umd.js"></script>
+<script>
+'use strict';
+/* =====================================================================
+   Utilidades
+   ===================================================================== */
+const $ = (s, el = document) => el.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const norm = s => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+const fmt = n => Number(n).toLocaleString('es-AR', {maximumFractionDigits: 2});
+const pctS = (a, b) => b ? (a / b * 100).toLocaleString('es-AR', {maximumFractionDigits: 1}) + '%' : '0%';
+const EMPTY = '(vacío)';
+const catVal = v => { const s = String(v ?? '').trim(); return s === '' ? EMPTY : s; };
+
+function parseNum(v) {
+  const s = String(v ?? '').trim();
+  if (!s) return NaN;
+  if (/^-?\d+([.,]\d+)?$/.test(s)) return parseFloat(s.replace(',', '.'));
+  if (/^-?\d{1,3}(\.\d{3})+(,\d+)?$/.test(s)) return parseFloat(s.replace(/\./g, '').replace(',', '.'));
+  if (/^-?\d{1,3}(,\d{3})+(\.\d+)?$/.test(s)) return parseFloat(s.replace(/,/g, ''));
+  return NaN;
+}
+function parseDate(v) {
+  const s = String(v ?? '').trim();
+  let m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})(?:[ T](\d{1,2}):(\d{2}))?/);
+  if (m) {
+    let y = +m[3]; if (y < 100) y += 2000;
+    const d = new Date(y, +m[2] - 1, +m[1], +(m[4] || 0), +(m[5] || 0));
+    return (d.getMonth() === +m[2] - 1) ? d : null;
+  }
+  m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return new Date(+m[1], +m[2] - 1, +m[3]);
+  return null;
+}
+function toast(msg, ms = 3500) {
+  const t = $('#toast'); t.textContent = msg; t.style.display = 'block';
+  clearTimeout(toast._t); toast._t = setTimeout(() => t.style.display = 'none', ms);
+}
+function download(name, text, type) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], {type}));
+  a.download = name; document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+}
+function shade(hex, f) { // f<0 oscurece
+  const n = parseInt(hex.slice(1), 16);
+  let r = n >> 16, g = (n >> 8) & 255, b = n & 255;
+  const t = f < 0 ? 0 : 255, p = Math.abs(f);
+  r = Math.round((t - r) * p + r); g = Math.round((t - g) * p + g); b = Math.round((t - b) * p + b);
+  return '#' + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
+}
+
+/* =====================================================================
+   Paletas e íconos
+   ===================================================================== */
+// Colores de Google My Maps (grilla del editor de estilo)
+const PICKER = ['#a52714','#e65100','#f9a825','#817717','#558b2f','#097138','#006064','#01579b','#1a237e','#673ab7',
+                '#c2185b','#880e4f','#4e342e','#757575','#000000','#ff5252','#ffd600','#7cb342','#0288d1','#9c27b0',
+                '#ffea00','#ff6d00','#0097a7','#3949ab','#795548','#bdbdbd','#e91e63','#26a69a','#8d6e63','#ffffff'];
+const LAYER_COLORS = ['#01579b','#a52714','#097138','#f9a825','#673ab7','#e65100','#0097a7','#c2185b','#4e342e','#757575'];
+const CAT_COLORS = ['#01579b','#e65100','#097138','#673ab7','#c2185b','#0097a7','#f9a825','#4e342e','#3949ab','#7cb342',
+                    '#455a64','#006064','#ff6d00','#9c27b0','#817717','#26a69a','#8d6e63','#1a237e','#ff5252','#757575'];
+// Paleta categórica del dashboard (validada para daltonismo, orden fijo)
+const VIZ = ['#2a78d6','#eb6834','#1baf7a','#eda100','#e87ba4','#008300','#4a3aa7'];
+const OTHER = '#b4b2aa';
+
+function smartColor(v, i) {
+  const s = norm(v);
+  if (/subsan|resuelt|solucion|cerrad|finaliz|complet|aprob|otorgad|^ok$|^si$|realizad|normal/.test(s)) return '#097138';
+  if (/nuev|pendient|proceso|progreso|revision|parcial|en curso|asignad/.test(s)) return '#f9a825';
+  if (/contin|incidenc|urgent|rechaz|falla|error|venc|denegad|^no$|critic|infracc/.test(s)) return '#a52714';
+  if (s === norm(EMPTY)) return '#9e9e9e';
+  return CAT_COLORS[i % CAT_COLORS.length];
+}
+
+// Glifos (Material Icons, viewBox 24)
+const GLYPHS = {
+  none: '',
+  bolt: 'M11 21h-1l1-7H7.5c-.58 0-.57-.32-.38-.66.19-.34.05-.08.07-.12C8.48 10.94 10.42 7.54 13 3h1l-1 7h3.5c.49 0 .56.33.47.51l-.07.15C12.96 17.55 11 21 11 21z',
+  warning: 'M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z',
+  check: 'M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z',
+  close: 'M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z',
+  star: 'M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z',
+  flag: 'M14.4 6L14 4H5v17h2v-7h5.6l.4 2h7V6z',
+  home: 'M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z',
+  bulb: 'M9 21c0 .55.45 1 1 1h4c.55 0 1-.45 1-1v-1H9v1zm3-19C8.14 2 5 5.14 5 9c0 2.38 1.19 4.47 3 5.74V17c0 .55.45 1 1 1h6c.55 0 1-.45 1-1v-2.26c1.81-1.27 3-3.36 3-5.74 0-3.86-3.14-7-7-7z',
+  tree: 'M17 12h2L12 2 5 12h2l-3 5h7v5h2v-5h7z',
+  drop: 'M12 2c-5.33 4.55-8 8.48-8 11.8 0 4.98 3.8 8.2 8 8.2s8-3.22 8-8.2c0-3.32-2.67-7.25-8-11.8z',
+  car: 'M18.92 6.01C18.72 5.42 18.16 5 17.5 5h-11c-.66 0-1.21.42-1.42 1.01L3 12v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99zM6.5 16c-.83 0-1.5-.67-1.5-1.5S5.67 13 6.5 13s1.5.67 1.5 1.5S7.33 16 6.5 16zm11 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zM5 11l1.5-4.5h11L19 11H5z',
+  trash: 'M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z',
+  person: 'M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z',
+  tool: 'M22.7 19l-9.1-9.1c.9-2.3.4-5-1.5-6.9-2-2-5-2.4-7.4-1.3L9 6 6 9 1.6 4.7C.4 7.1.9 10.1 2.9 12.1c1.9 1.9 4.6 2.4 6.9 1.5l9.1 9.1c.4.4 1 .4 1.4 0l2.3-2.3c.5-.4.5-1.1.1-1.4z',
+  store: 'M20 4H4v2h16V4zm1 10v-2l-1-5H4l-1 5v2h1v6h10v-6h4v6h2v-6h1zm-9 4H6v-4h6v4z',
+  pole: 'M11 2h2v3h5v2h-5v3h4v2h-4v10h-2V12H7v-2h4V7H6V5h5z',
+  camera: 'M12 15.2A3.2 3.2 0 1012 8.8a3.2 3.2 0 000 6.4zM9 2L7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2h-3.17L15 2H9z',
+  info: 'M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z',
+  bus: 'M4 16c0 .88.39 1.67 1 2.22V20c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h8v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1.78c.61-.55 1-1.34 1-2.22V6c0-3.5-3.58-4-8-4s-8 .5-8 4v10zm3.5 1c-.83 0-1.5-.67-1.5-1.5S6.67 14 7.5 14s1.5.67 1.5 1.5S8.33 17 7.5 17zm9 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm1.5-6H6V6h12v5z',
+  school: 'M5 13.18v4L12 21l7-3.82v-4L12 17l-7-3.82zM12 3L1 9l11 6 9-4.91V17h2V9L12 3z',
+  wifi: 'M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3c-1.650-1.66-4.34-1.66-6 0zm-4-4l2 2c2.76-2.76 7.24-2.76 10 0l2-2C15.14 9.14 8.87 9.14 5 13z',
+  place: 'M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z',
+  priority: 'M12 17a2 2 0 100 4 2 2 0 000-4zM10 3h4v12h-4z',
+  help: 'M11 18h2v-2h-2v2zm1-16C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm0-14c-2.21 0-4 1.79-4 4h2c0-1.1.9-2 2-2s2 .9 2 2c0 2-3 1.75-3 5h2c0-2.25 3-2.5 3-5 0-2.21-1.790-4-4-4z',
+  block: 'M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM4 12c0-4.42 3.58-8 8-8 1.85 0 3.55.63 4.9 1.69L5.69 16.9C4.63 15.55 4 13.85 4 12zm8 8c-1.85 0-3.55-.63-4.9-1.69L18.31 7.1C19.37 8.45 20 10.15 20 12c0 4.42-3.58 8-8 8z',
+  shield: 'M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z',
+  gavel: 'M1 21h12v2H1zM5.245 8.07l2.83-2.827 14.14 14.142-2.828 2.828zM12.317 1l5.657 5.656-2.83 2.83-5.654-5.66zM3.825 9.485l5.657 5.657-2.828 2.828-5.657-5.657z',
+  cone: 'M9.5 3h5l1.3 5H8.2zM7.7 10h8.6l1.3 5H6.4zM5.9 17h12.2l.9 3H22v2H2v-2h3z',
+  traffic: 'M20 10h-3V8.86c1.72-.45 3-2 3-3.86h-3V4c0-.55-.45-1-1-1H8c-.55 0-1 .45-1 1v1H4c0 1.86 1.28 3.41 3 3.86V10H4c0 1.86 1.28 3.41 3 3.86V15H4c0 1.86 1.28 3.41 3 3.86V20c0 .55.45 1 1 1h8c.55 0 1-.45 1-1v-1.14c1.72-.45 3-2 3-3.86h-3v-1.14c1.72-.45 3-2 3-3.86zm-8 9c-1.11 0-2-.9-2-2s.89-2 2-2c1.1 0 2 .9 2 2s-.89 2-2 2zm0-5c-1.11 0-2-.9-2-2s.89-2 2-2c1.1 0 2 .9 2 2s-.89 2-2 2zm0-5c-1.11 0-2-.89-2-2 0-1.11.89-2 2-2 1.1 0 2 .89 2 2 0 1.11-.89 2-2 2z',
+  sign: 'M11 2h2v2h6l2 2.5L19 9h-6v13h-2V9H5V4h6z',
+  lamp: 'M10 2h4v2h3l-2 4H9L7 4h3zm1 7h2v13h-2z',
+  plug: 'M16 7V3h-2v4h-4V3H8v4c-1.1 0-2 .9-2 2v5.5L9.5 18v3h5v-3l3.5-3.5V9c0-1.1-.9-2-2-2z',
+  parking: 'M13 3H6v18h4v-6h3c3.31 0 6-2.69 6-6s-2.69-6-6-6zm.2 8H10V7h3.2c1.1 0 2 .9 2 2s-.9 2-2 2z',
+  truck: 'M20 8h-3V4H3c-1.1 0-2 .9-2 2v11h2c0 1.66 1.34 3 3 3s3-1.34 3-3h6c0 1.66 1.34 3 3 3s3-1.34 3-3h2v-5l-3-4zM6 18.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm13.5-9l1.96 2.5H17V9.5h2.5zm-1.5 9c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z',
+  train: 'M12 2c-4 0-8 .5-8 4v9.5C4 17.43 5.57 19 7.5 19L6 20.5v.5h2.23l2-2H14l2 2h2v-.5L16.5 19c1.93 0 3.5-1.57 3.5-3.5V6c0-3.5-3.58-4-8-4zM7.5 17c-.83 0-1.5-.67-1.5-1.5S6.67 14 7.5 14s1.5.67 1.5 1.5S8.33 17 7.5 17zm3.5-7H6V6h5v4zm2 0V6h5v4h-5zm3.5 7c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z',
+  building: 'M12 7V3H2v18h20V7H12zM6 19H4v-2h2v2zm0-4H4v-2h2v2zm0-4H4V9h2v2zm0-4H4V5h2v2zm4 12H8v-2h2v2zm0-4H8v-2h2v2zm0-4H8V9h2v2zm0-4H8V5h2v2zm10 12h-8v-2h2v-2h-2v-2h2v-2h-2V9h8v10zm-2-8h-2v2h2v-2zm0 4h-2v2h2v-2z',
+  church: 'M11 2h2v2h2v2h-2v3l6 4v9h-5v-5h-4v5H5v-9l6-4V6H9V4h2z',
+  hospital: 'M19 3H5c-1.1 0-1.99.9-1.99 2L3 19c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-1 11h-4v4h-4v-4H6v-4h4V6h4v4h4v4z',
+  fire: 'M13.5.67s.74 2.65.74 4.8c0 2.06-1.35 3.73-3.41 3.73-2.07 0-3.63-1.67-3.63-3.730l.03-.36C5.21 7.51 4 10.62 4 14c0 4.42 3.58 8 8 8s8-3.58 8-8C20 8.61 17.41 3.8 13.5.67zM11.71 19c-1.78 0-3.22-1.4-3.22-3.14 0-1.62 1.05-2.76 2.81-3.12 1.77-.36 3.6-1.21 4.62-2.58.39 1.29.59 2.65.59 4.04 0 2.65-2.15 4.8-4.8 4.8z',
+  restaurant: 'M11 9H9V2H7v7H5V2H3v7c0 2.12 1.66 3.84 3.75 3.97V22h2.5v-9.03C11.34 12.84 13 11.12 13 9V2h-2v7zm5-3v8h2.5v8H21V2c-2.76 0-5 2.24-5 4z',
+  cafe: 'M20 3H4v10c0 2.21 1.79 4 4 4h6c2.21 0 4-1.79 4-4v-3h2c1.11 0 2-.89 2-2V5c0-1.11-.89-2-2-2zm0 5h-2V5h2v3zM4 19h16v2H4z',
+  cart: 'M7 18c-1.1 0-1.99.9-1.99 2S5.9 22 7 22s2-.9 2-2-.9-2-2-2zM1 2v2h2l3.6 7.59-1.35 2.45c-.16.28-.25.61-.25.96 0 1.1.9 2 2 2h12v-2H7.42c-.14 0-.25-.11-.25-.25l.03-.12.9-1.63h7.45c.75 0 1.41-.41 1.75-1.03l3.58-6.49A1.003 1.003 0 0020 4H5.21l-.94-2H1zm16 16c-1.1 0-1.99.9-1.99 2s.89 2 1.99 2 2-.9 2-2-.9-2-2-2z',
+  money: 'M11.8 10.9c-2.27-.59-3-1.2-3-2.15 0-1.09 1.01-1.85 2.7-1.85 1.78 0 2.44.85 2.5 2.1h2.21c-.07-1.72-1.12-3.3-3.21-3.81V3h-3v2.16c-1.94.42-3.5 1.68-3.5 3.61 0 2.31 1.91 3.46 4.7 4.13 2.5.6 3 1.48 3 2.41 0 .69-.49 1.79-2.7 1.79-2.06 0-2.87-.92-2.98-2.1h-2.2c.12 2.19 1.76 3.42 3.68 3.83V21h3v-2.15c1.95-.37 3.5-1.5 3.5-3.55 0-2.84-2.43-3.81-4.7-4.4z',
+  doc: 'M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z',
+  clipboard: 'M19 3h-4.18C14.4 1.84 13.3 1 12 1c-1.3 0-2.4.84-2.82 2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 0c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm2 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z',
+  calendar: 'M17 12h-5v5h5v-5zM16 1v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2h-1V1h-2zm3 18H5V8h14v11z',
+  clock: 'M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z',
+  phone: 'M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z',
+  eye: 'M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z',
+  lock: 'M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z',
+  heart: 'M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z'
+};
+const SHAPES = {pin: 'Pin', circle: 'Círculo', square: 'Cuadrado', dot: 'Punto'};
+
+function glyphSvg(g, cx, cy, sz) {
+  if (g && g.startsWith('txt:')) {
+    const t = g.slice(4), fs = [...t].length > 2 ? sz * .62 : [...t].length === 2 ? sz * .8 : sz * .95;
+    return `<text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="central" font-family="Roboto,Arial,'Segoe UI Emoji','Apple Color Emoji','Noto Color Emoji',sans-serif" font-weight="700" font-size="${fs.toFixed(1)}" fill="#fff">${esc(t)}</text>`;
+  }
+  if (!g || !GLYPHS[g]) return '';
+  const s = sz / 24;
+  return `<path fill="#fff" transform="translate(${(cx - sz / 2).toFixed(2)},${(cy - sz / 2).toFixed(2)}) scale(${s.toFixed(3)})" d="${GLYPHS[g]}"/>`;
+}
+function markerSvg(st, k = 1) {
+  const c = st.color, stroke = shade(c, -0.35), g = st.glyph;
+  if (st.shape === 'pin') {
+    const w = 26 * k, h = 38 * k;
+    const inner = g && g !== 'none' ? glyphSvg(g, 13, 13, 14) : `<circle cx="13" cy="13" r="4.2" fill="${shade(c, -0.45)}"/>`;
+    return {w, h, ax: w / 2, ay: h, svg: `<svg width="${w}" height="${h}" viewBox="0 0 26 38"><path d="M13 .8C6.3.8.8 6.2.8 12.9c0 9.3 12.2 24.3 12.2 24.3s12.2-15 12.2-24.3C25.2 6.2 19.7.8 13 .8z" fill="${c}" stroke="${stroke}" stroke-width="1.2"/>${inner}</svg>`};
+  }
+  if (st.shape === 'dot') {
+    const w = 12 * k;
+    return {w, h: w, ax: w / 2, ay: w / 2, svg: `<svg width="${w}" height="${w}" viewBox="0 0 12 12"><circle cx="6" cy="6" r="5" fill="${c}" stroke="#fff" stroke-width="1.5"/></svg>`};
+  }
+  const w = 24 * k;
+  const bg = st.shape === 'square'
+    ? `<rect x="1.5" y="1.5" width="21" height="21" rx="4" fill="${c}" stroke="#fff" stroke-width="2"/>`
+    : `<circle cx="12" cy="12" r="10.5" fill="${c}" stroke="#fff" stroke-width="2"/>`;
+  return {w, h: w, ax: w / 2, ay: w / 2, svg: `<svg width="${w}" height="${w}" viewBox="0 0 24 24">${bg}${glyphSvg(g, 12, 12, 14)}</svg>`};
+}
+const iconCache = new Map();
+function iconFor(st) {
+  const key = [st.color, st.shape, st.glyph, st.size].join('|');
+  let ic = iconCache.get(key);
+  if (!ic) {
+    const m = markerSvg(st, st.size);
+    ic = L.divIcon({className: 'mk', html: m.svg, iconSize: [m.w, m.h], iconAnchor: [m.ax, m.ay], popupAnchor: [0, -m.ay + 4]});
+    iconCache.set(key, ic);
+  }
+  return ic;
+}
+// swatch chico para el panel
+function swatchHtml(ly, st) {
+  if (ly.kind === 'point') return markerSvg({...st, size: st.shape === 'pin' ? .55 : .75}).svg;
+  if (ly.kind === 'poly') return `<svg width="18" height="18" viewBox="0 0 18 18"><rect x="2" y="2" width="14" height="14" rx="2" fill="${st.fill || st.color}" fill-opacity="${Math.max(.35, st.fillOpacity ?? .35)}" stroke="${st.color}" stroke-width="2"/></svg>`;
+  return `<svg width="18" height="18" viewBox="0 0 18 18"><path d="M2 14 L8 6 L16 10" fill="none" stroke="${st.color}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+}
+
+/* =====================================================================
+   Estado
+   ===================================================================== */
+const STYLE_KEYS = new Set(['styleUrl','styleHash','styleMapHash','stroke','stroke-opacity','stroke-width','fill','fill-opacity',
+  'marker-color','marker-size','marker-symbol','icon','icon-color','icon-opacity','icon-scale','icon-offset','icon-offset-units',
+  'label-color','label-opacity','label-scale','gx_media_links','visibility','timespan','timestamp','__capa','__desc_parsed','description','name']);
+const S = {
+  layers: [], feats: [], zones: [], zoneById: new Map(),
+  filters: new Map(), zoneSel: new Set(), viewOnly: false, viewBounds: null,
+  fields: [], fieldMap: new Map(),
+  dist: null, crossA: null, crossB: null, dateField: null, numField: null,
+  tableQ: '', page: 0, sortKey: null, sortDir: 1,
+};
+let fidSeq = 0, lidSeq = 0, dashOpen = false;
+
+/* =====================================================================
+   Mapa
+   ===================================================================== */
+const map = L.map('map', {zoomControl: false, preferCanvas: true, worldCopyJump: true}).setView([-34.6118, -58.4173], 12);
+L.control.zoom({position: 'bottomright'}).addTo(map);
+L.control.scale({position: 'bottomleft', imperial: false}).addTo(map);
+// Mismo key de CARTO que Asignador de Comunas / Generador de Recorridos (los tiles anónimos piden API key)
+const CARTO_KEY = atob('Y2IxXzI3dWlfMV9jOTg4MDc2YjUxYTY0MmRlMDRkODAwYzU=');
+const cartoAttr = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>';
+const BASES = {
+  voyager: L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?key=' + CARTO_KEY, {attribution: cartoAttr, subdomains: 'abcd', maxZoom: 20}),
+  positron: L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/light_all/{z}/{x}/{y}{r}.png?key=' + CARTO_KEY, {attribution: cartoAttr, subdomains: 'abcd', maxZoom: 20}),
+  dark: L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}{r}.png?key=' + CARTO_KEY, {attribution: cartoAttr, subdomains: 'abcd', maxZoom: 20}),
+  sat: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {attribution: 'Tiles &copy; Esri', maxZoom: 19}),
+  osm: L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {attribution: '&copy; OpenStreetMap', maxZoom: 19}),
+};
+let base = BASES.voyager.addTo(map);
+$('#baseSel').onchange = e => { map.removeLayer(base); base = BASES[e.target.value].addTo(map); base.bringToBack(); };
+
+/* =====================================================================
+   Lectura de KML / KMZ
+   ===================================================================== */
+async function readKmlText(file) {
+  if (/\.kmz$/i.test(file.name)) {
+    const zip = await JSZip.loadAsync(file);
+    const entry = Object.values(zip.files).find(f => /\.kml$/i.test(f.name) && /(^|\/)doc\.kml$/i.test(f.name))
+               || Object.values(zip.files).find(f => /\.kml$/i.test(f.name));
+    if (!entry) throw new Error('el KMZ no contiene un .kml');
+    return entry.async('string');
+  }
+  return file.text();
+}
+const childEl = (el, name) => Array.from(el.children).find(c => c.localName === name);
+const childName = el => { const n = childEl(el, 'name'); return n ? n.textContent.trim() : ''; };
+
+function parseDescription(p) {
+  let d = p.description;
+  if (d && typeof d === 'object') d = d.value ?? '';
+  if (typeof d !== 'string') { delete p.description; return; }
+  p.description = d;
+  if (!d.trim()) return;
+  const pairs = [];
+  if (/<td/i.test(d)) {
+    const doc = new DOMParser().parseFromString(d, 'text/html');
+    doc.querySelectorAll('tr').forEach(tr => {
+      const c = tr.querySelectorAll('td,th');
+      if (c.length === 2) pairs.push([c[0].textContent.trim(), c[1].textContent.trim()]);
+    });
+  } else {
+    const lines = d.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, '').split('\n');
+    for (const l of lines) { const m = l.match(/^\s*([^:]{1,40}):\s?(.*)$/); if (m) pairs.push([m[1].trim(), m[2].trim()]); }
+  }
+  if (pairs.length >= 2) {
+    for (const [k, v] of pairs) if (k && !(k in p)) p[k] = v;
+    p.__desc_parsed = true;
+  }
+}
+
+function parseKml(text, fname) {
+  const dom = new DOMParser().parseFromString(text, 'text/xml');
+  if (dom.getElementsByTagName('parsererror').length) throw new Error('XML inválido');
+  const root = dom.documentElement, ns = root.namespaceURI;
+  const rootDoc = Array.from(root.children).find(c => c.localName === 'Document');
+  const pms = Array.from(dom.getElementsByTagName('Placemark'));
+  for (const pm of pms) {
+    const path = [];
+    for (let p = pm.parentNode; p && p.nodeType === 1; p = p.parentNode) {
+      if (p.localName === 'Folder' || (p.localName === 'Document' && p !== rootDoc)) path.unshift(childName(p) || 'Carpeta');
+    }
+    let ed = childEl(pm, 'ExtendedData');
+    if (!ed) { ed = dom.createElementNS(ns, 'ExtendedData'); pm.appendChild(ed); }
+    const d = dom.createElementNS(ns, 'Data'); d.setAttribute('name', '__capa');
+    const v = dom.createElementNS(ns, 'value'); v.textContent = path.join(' / ');
+    d.appendChild(v); ed.appendChild(d);
+  }
+  const gj = toGeoJSON.kml(dom);
+  const docName = rootDoc ? childName(rootDoc) : '';
+  const baseName = fname.replace(/\.(kml|kmz)$/i, '');
+  const groups = new Map();
+  for (const f of gj.features) {
+    if (!f.geometry) continue;
+    const p = f.properties || (f.properties = {});
+    const cap = p.__capa || ''; delete p.__capa;
+    for (const k in p) if (typeof p[k] === 'string') p[k] = p[k].trim();
+    parseDescription(p);
+    if (!groups.has(cap)) groups.set(cap, []);
+    groups.get(cap).push(f);
+  }
+  const keys = [...groups.keys()];
+  return keys.map(k => ({
+    name: keys.length === 1 ? (k ? k.split(' / ').pop() : (docName || baseName)) : (k || docName || baseName),
+    feats: groups.get(k), file: fname,
+  }));
+}
+
+async function loadFiles(files) {
+  files = Array.from(files).filter(f => /\.(kml|kmz)$/i.test(f.name));
+  if (!files.length) { toast('Elegí archivos .kml o .kmz'); return; }
+  $('#loading').classList.add('on');
+  await new Promise(r => setTimeout(r, 30));
+  const added = [];
+  for (const file of files) {
+    try {
+      const groups = parseKml(await readKmlText(file), file.name);
+      for (const g of groups) if (g.feats.length) added.push(addLayer(g.name, g.feats, g.file));
+      if (!groups.some(g => g.feats.length)) toast(`${file.name}: no tiene elementos con geometría`);
+    } catch (e) {
+      console.error(e); toast(`No se pudo leer ${file.name}: ${e.message}`);
+    }
+  }
+  afterLayersChange();
+  $('#loading').classList.remove('on');
+  if (added.length) {
+    if (innerWidth <= 760 && !$('#panel').classList.contains('collapsed')) $('#collapseBtn').click();
+    fitLayers(added);
+    toast(`${added.length} capa(s) cargada(s) · ${fmt(added.reduce((a, l) => a + l.features.length, 0))} elementos`);
+  }
+}
+
+/* =====================================================================
+   Capas
+   ===================================================================== */
+const geomKind = g => !g ? null : /Point/.test(g.type) ? 'point' : /LineString/.test(g.type) ? 'line' : /Polygon/.test(g.type) ? 'poly'
+  : g.type === 'GeometryCollection' ? (g.geometries.map(geomKind).find(Boolean) || null) : null;
+function eachCoord(g, fn) {
+  if (!g) return;
+  if (g.type === 'GeometryCollection') return g.geometries.forEach(x => eachCoord(x, fn));
+  const walk = a => typeof a[0] === 'number' ? fn(a) : a.forEach(walk);
+  walk(g.coordinates);
+}
+function bboxOf(g) { const b = [Infinity, Infinity, -Infinity, -Infinity]; eachCoord(g, c => { if (c[0] < b[0]) b[0] = c[0]; if (c[1] < b[1]) b[1] = c[1]; if (c[0] > b[2]) b[2] = c[0]; if (c[1] > b[3]) b[3] = c[1]; }); return b; }
+function repPoint(g) {
+  if (g.type === 'Point') return g.coordinates;
+  if (g.type === 'LineString') return g.coordinates[Math.floor(g.coordinates.length / 2)];
+  const b = bboxOf(g); return isFinite(b[0]) ? [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2] : null;
+}
+const hasKmlColor = p => p['icon-color'] || p['marker-color'] || p.stroke || p.fill;
+
+function layerFields(ly) { // columnas categóricas de la capa para "Estilo de ..."
+  const m = new Map();
+  for (const f of ly.features) for (const k in f.properties) {
+    if (STYLE_KEYS.has(k)) continue;
+    let s = m.get(k); if (!s) m.set(k, s = new Set());
+    if (s.size <= 60) s.add(catVal(f.properties[k]));
+  }
+  return [...m.entries()].filter(([, s]) => s.size >= 1 && s.size <= 60 && !(s.size === 1 && s.has(EMPTY))).map(([k, s]) => ({key: k, n: s.size}));
+}
+
+function addLayer(name, feats, file) {
+  const idx = S.layers.length;
+  const ly = {
+    id: ++lidSeq, name, file, visible: true, analyzed: true, features: [],
+    style: {color: LAYER_COLORS[idx % LAYER_COLORS.length], shape: 'pin', glyph: 'none', size: 1, width: 3, fillOpacity: .3, labels: true},
+    styleBy: null, cats: new Map(), catOrder: [], counts: {point: 0, line: 0, poly: 0},
+    group: L.featureGroup().addTo(map),
+  };
+  for (const f of feats) {
+    f.id = ++fidSeq; f.ly = ly; f.kind = geomKind(f.geometry);
+    if (!f.kind) continue;
+    ly.counts[f.kind]++;
+    f.rep = repPoint(f.geometry);
+    ly.features.push(f); S.feats.push(f);
+  }
+  ly.keys = new Set(); for (const f of ly.features) for (const k in f.properties) ly.keys.add(k);
+  ly.kind = ['point', 'line', 'poly'].sort((a, b) => ly.counts[b] - ly.counts[a])[0];
+  const hasPts = ly.counts.point > 0;
+  if (!hasPts) ly.style.color = ly.counts.poly ? '#757575' : ly.style.color;
+  // estilo inicial: columna tipo ESTADO si existe, si no el color del KML
+  const flds = layerFields(ly);
+  const guess = flds.find(f => /estado|status|situacion|tipo|categor|clase/i.test(f.key) && f.n >= 2 && f.n <= 15);
+  const kmlVaried = new Set(ly.features.map(f => hasKmlColor(f.properties)).filter(Boolean)).size > 1;
+  ly.hasKml = ly.features.some(f => hasKmlColor(f.properties));
+  if (guess) setStyleBy(ly, guess.key, true);
+  else if (kmlVaried || (ly.hasKml && !hasPts)) ly.styleBy = '__kml';
+  if (!hasPts && ly.counts.poly && !ly.counts.line) ly.analyzed = false; // capas solo-polígonos = zonas
+  for (const f of ly.features) {
+    f._lyr = L.geoJSON(f, {
+      pointToLayer: (ft, ll) => L.marker(ll, {icon: iconFor(featStyle(f))}),
+      style: () => pathStyle(f),
+    });
+    f._lyr.bindPopup(() => popupHtml(f), {maxWidth: Math.min(360, innerWidth - 40), autoPanPaddingTopLeft: innerWidth > 760 ? [330, 60] : [10, 70]});
+  }
+  applyLabels(ly);
+  S.layers.push(ly);
+  return ly;
+}
+
+function setStyleBy(ly, key, silent) {
+  ly.styleBy = key;
+  if (!key || key === '__kml') return;
+  const counts = new Map();
+  for (const f of ly.features) { const v = catVal(f.properties[key]); counts.set(v, (counts.get(v) || 0) + 1); }
+  const order = [...counts.keys()].sort((a, b) => counts.get(b) - counts.get(a));
+  const old = ly.cats; ly.cats = new Map();
+  order.forEach((v, i) => ly.cats.set(v, old.get(v) || {color: smartColor(v, i), glyph: null, visible: true, n: 0}));
+  for (const v of order) ly.cats.get(v).n = counts.get(v);
+  ly.catOrder = order;
+  if (!silent) restyle(ly);
+}
+
+function featStyle(f) {
+  const ly = f.ly, p = f.properties;
+  let color = ly.style.color, glyph = ly.style.glyph;
+  if (ly.styleBy === '__kml') color = p['icon-color'] || p['marker-color'] || p.stroke || p.fill || color;
+  else if (ly.styleBy) { const c = ly.cats.get(catVal(p[ly.styleBy])); if (c) { color = c.color; if (c.glyph) glyph = c.glyph; } }
+  if (!/^#[0-9a-f]{6}$/i.test(color)) color = ly.style.color;
+  return {color, glyph, shape: ly.style.shape, size: ly.style.size};
+}
+function pathStyle(f) {
+  const ly = f.ly, p = f.properties, st = featStyle(f);
+  let stroke = st.color, fill = st.color, fo = ly.style.fillOpacity;
+  if (ly.styleBy === '__kml') {
+    if (p.stroke) stroke = p.stroke;
+    if (p.fill) fill = p.fill;
+    if (p['fill-opacity'] != null && ly.style._kmlOpacity !== false) fo = Math.min(+p['fill-opacity'], .6);
+  }
+  return {color: stroke, weight: ly.style.width, opacity: .95, fillColor: fill, fillOpacity: f.kind === 'poly' ? fo : 0};
+}
+// recorre también MultiGeometry / GeometryCollection (grupos anidados)
+function leaves(g, fn) { g.getLayers ? g.getLayers().forEach(x => leaves(x, fn)) : fn(g); }
+function restyle(ly) {
+  for (const f of ly.features) leaves(f._lyr, l => l.setIcon ? l.setIcon(iconFor(featStyle(f))) : l.setStyle(pathStyle(f)));
+  applyLabels(ly);
+}
+function applyLabels(ly) {
+  const on = ly.style.labels && (ly.counts.poly > 0) && ly.features.length <= 400;
+  for (const f of ly.features) {
+    if (f.kind !== 'poly') continue;
+    leaves(f._lyr, l => {
+      l.unbindTooltip();
+      if (on && f.properties.name) l.bindTooltip(esc(f.properties.name), {permanent: true, direction: 'center', className: 'plabel'});
+    });
+  }
+}
+const catVisible = f => !(f.ly.styleBy && f.ly.styleBy !== '__kml' && f.ly.cats.get(catVal(f.properties[f.ly.styleBy]))?.visible === false);
+
+function removeLayer(ly) {
+  map.removeLayer(ly.group);
+  S.layers = S.layers.filter(l => l !== ly);
+  S.feats = S.feats.filter(f => f.ly !== ly);
+  afterLayersChange();
+}
+function fitLayers(lys) {
+  const b = L.latLngBounds([]);
+  for (const ly of lys) for (const f of ly.features) { const bb = bboxOf(f.geometry); if (isFinite(bb[0])) { b.extend([bb[1], bb[0]]); b.extend([bb[3], bb[2]]); } }
+  if (b.isValid()) map.fitBounds(b, {paddingTopLeft: [innerWidth > 760 ? 330 : 10, 60], paddingBottomRight: [20, 20], maxZoom: 17});
+}
+
+/* =====================================================================
+   Zonas (polígonos) — punto en polígono
+   ===================================================================== */
+function inRing(pt, ring) {
+  let ins = false; const x = pt[0], y = pt[1];
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const xi = ring[i][0], yi = ring[i][1], xj = ring[j][0], yj = ring[j][1];
+    if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) ins = !ins;
+  }
+  return ins;
+}
+function inPoly(pt, g) {
+  if (g.type === 'Polygon') return inRing(pt, g.coordinates[0]) && !g.coordinates.slice(1).some(h => inRing(pt, h));
+  if (g.type === 'MultiPolygon') return g.coordinates.some(c => inPoly(pt, {type: 'Polygon', coordinates: c}));
+  if (g.type === 'GeometryCollection') return g.geometries.some(x => inPoly(pt, x));
+  return false;
+}
+function computeZones() {
+  const seq = new Map();
+  S.zones = S.feats.filter(f => f.kind === 'poly').map(f => {
+    const n = (seq.get(f.ly) || 0) + 1; seq.set(f.ly, n);
+    return {id: f.id, f, name: f.properties.name || `${f.ly.name} ${n}`, bb: bboxOf(f.geometry)};
+  });
+  S.zoneById = new Map(S.zones.map(z => [z.id, z]));
+  for (const id of [...S.zoneSel]) if (!S.zoneById.has(id)) S.zoneSel.delete(id);
+  for (const f of S.feats) {
+    f.zones = [];
+    if (!f.rep || f.kind === 'poly') continue;
+    const p = f.rep;
+    for (const z of S.zones) {
+      if (p[0] < z.bb[0] || p[0] > z.bb[2] || p[1] < z.bb[1] || p[1] > z.bb[3]) continue;
+      if (inPoly(p, z.f.geometry)) f.zones.push(z.id);
+    }
+  }
+}
+
+/* =====================================================================
+   Columnas / filtros
+   ===================================================================== */
+const analyzedFeats = () => S.feats.filter(f => f.ly.analyzed && f.ly.visible);
+function computeFields() {
+  const src = S.feats.filter(f => f.ly.analyzed);
+  const m = new Map();
+  for (const f of src) for (const k in f.properties) {
+    if (STYLE_KEYS.has(k)) continue;
+    let e = m.get(k); if (!e) m.set(k, e = {key: k, vals: new Map(), filled: 0});
+    const v = catVal(f.properties[k]);
+    if (v !== EMPTY) e.filled++;
+    e.vals.set(v, (e.vals.get(v) || 0) + 1);
+  }
+  const fields = [];
+  for (const e of m.values()) {
+    if (!e.filled) continue;
+    const nonEmpty = [...e.vals.keys()].filter(v => v !== EMPTY);
+    const numOk = nonEmpty.filter(v => !isNaN(parseNum(v))).length, dateOk = nonEmpty.filter(v => parseDate(v)).length;
+    let type;
+    if (dateOk >= nonEmpty.length * .9 && nonEmpty.length > 1) type = 'date';
+    else if (numOk >= nonEmpty.length * .9 && nonEmpty.length > 15) type = 'num';
+    else if (e.vals.size <= 150) type = 'cat';
+    else type = 'text';
+    const order = [...e.vals.keys()].sort((a, b) => e.vals.get(b) - e.vals.get(a));
+    fields.push({key: e.key, type, uniq: e.vals.size, order, rank: new Map(order.map((v, i) => [v, i])), filled: e.filled});
+  }
+  S.fields = fields;
+  S.fieldMap = new Map(fields.map(f => [f.key, f]));
+  for (const k of [...S.filters.keys()]) if (!S.fieldMap.has(k)) S.filters.delete(k);
+  const cats = fields.filter(f => f.type === 'cat' && f.uniq >= 2);
+  const styled = S.layers.find(l => l.analyzed && l.styleBy && S.fieldMap.has(l.styleBy))?.styleBy;
+  const pref = cats.filter(f => f.uniq <= 25).sort((a, b) => score(b) - score(a));
+  function score(f) { const r = f.filled / Math.max(1, src.length); return (r > .5 ? 200 : 0) + (/estado|status|tipo|categ|empresa|zona|barrio|comuna|situac/i.test(f.key) ? 100 : 0) + r * 50 - f.uniq / 1000; }
+  if (!S.fieldMap.has(S.dist) && S.dist !== '__layer') S.dist = (pref[0] && pref[0].filled > src.length * .5 ? pref[0].key : styled) || pref[0]?.key || (S.layers.length > 1 ? '__layer' : cats[0]?.key) || null;
+  if (!S.fieldMap.has(S.crossA) && S.crossA !== '__layer') S.crossA = pref.find(f => f.key !== S.dist)?.key || '__layer';
+  if (!S.fieldMap.has(S.crossB) && S.crossB !== '__layer') S.crossB = S.dist || null;
+  if (!S.fieldMap.has(S.dateField)) S.dateField = fields.find(f => f.type === 'date')?.key || null;
+  const isId = k => /^(id|fid|objectid|ogc_fid|gid|codigo|cod|id_.*|.*_id|cod_.*)$/i.test(k);
+  if (!S.fieldMap.has(S.numField)) S.numField = (fields.find(f => f.type === 'num' && !isId(f.key)) || fields.find(f => f.type === 'num'))?.key || null;
+}
+
+function getVal(f, k) {
+  if (k === '__layer') return f.ly.name;
+  return catVal(f.properties[k]);
+}
+function passes(f, skip) {
+  for (const [k, fl] of S.filters) {
+    if (k === skip) continue;
+    const raw = f.properties[k];
+    if (fl.type === 'cat') { if (!fl.sel.has(catVal(raw))) return false; }
+    else if (fl.type === 'num') {
+      const n = parseNum(raw);
+      if (isNaN(n) || (fl.min != null && n < fl.min) || (fl.max != null && n > fl.max)) return false;
+    } else if (fl.type === 'date') {
+      const d = parseDate(raw);
+      if (!d || (fl.from && d < fl.from) || (fl.to && d > fl.to)) return false;
+    } else if (fl.type === 'text') { if (!norm(raw).includes(norm(fl.q))) return false; }
+  }
+  if (skip !== '__zone' && S.zoneSel.size && !(f.zones && f.zones.some(z => S.zoneSel.has(z)))) return false;
+  if (S.viewOnly && S.viewBounds && !(f.rep && S.viewBounds.contains([f.rep[1], f.rep[0]]))) return false;
+  return true;
+}
+const filteredFeats = () => analyzedFeats().filter(f => catVisible(f) && passes(f));
+
+function refreshMap() {
+  for (const ly of S.layers) {
+    for (const f of ly.features) {
+      const vis = ly.visible && catVisible(f) && (!ly.analyzed || passes(f));
+      if (vis !== f._shown) { vis ? ly.group.addLayer(f._lyr) : ly.group.removeLayer(f._lyr); f._shown = vis; }
+    }
+  }
+}
+function refresh() { refreshMap(); renderSub(); if (dashOpen) renderDash(); }
+function afterLayersChange() { computeZones(); computeFields(); renderPanel(); refresh(); }
+
+function toggleCatFilter(k, v) {
+  if (k === '__layer') {
+    const target = S.layers.find(l => l.name === v); if (!target) return;
+    const only = S.layers.filter(l => l.analyzed);
+    if (only.length === 1 && only[0] === target) S.layers.forEach(l => l.analyzed = l.counts.point > 0 || l.counts.line > 0);
+    else S.layers.forEach(l => l.analyzed = l === target);
+    computeFields(); renderPanel(); refresh(); return;
+  }
+  let fl = S.filters.get(k);
+  if (!fl || fl.type !== 'cat') { S.filters.set(k, {type: 'cat', sel: new Set([v])}); }
+  else { fl.sel.has(v) ? fl.sel.delete(v) : fl.sel.add(v); if (!fl.sel.size) S.filters.delete(k); }
+  refresh();
+}
+function toggleZone(id) { S.zoneSel.has(id) ? S.zoneSel.delete(id) : S.zoneSel.add(id); refresh(); }
+
+/* =====================================================================
+   Panel de capas
+   ===================================================================== */
+function renderSub() {
+  const n = S.layers.length, e = S.feats.length;
+  $('#mapSub').textContent = n ? `${n} capa${n > 1 ? 's' : ''} · ${fmt(e)} elementos` : 'Sin capas cargadas';
+}
+function renderPanel() {
+  const box = $('#layers');
+  if (!S.layers.length) {
+    box.innerHTML = `<div class="empty"><svg viewBox="0 0 24 24" width="40" height="40" fill="#bdc1c6"><path d="M11.99 18.54l-7.37-5.73L3 14.07l9 7 9-7-1.63-1.27zM12 16l7.36-5.73L21 9l-9-7-9 7 1.63 1.27L12 16z"/></svg><br>
+      <b>Arrastrá tus archivos KML / KMZ</b> sobre el mapa<br>o tocá “Añadir capa”.<br><br>
+      Cada carpeta del KML se carga como una capa y se conservan todas sus columnas.</div>`;
+    return;
+  }
+  box.innerHTML = S.layers.map(ly => {
+    const flds = layerFields(ly);
+    const opts = [`<option value="">Estilo uniforme</option>`]
+      .concat(ly.hasKml ? [`<option value="__kml" ${ly.styleBy === '__kml' ? 'selected' : ''}>Estilo original del KML</option>`] : [])
+      .concat(flds.map(f => `<option value="${esc(f.key)}" ${ly.styleBy === f.key ? 'selected' : ''}>Estilo de ${esc(f.key)}</option>`));
+    let rows;
+    if (ly.styleBy && ly.styleBy !== '__kml') {
+      rows = ly.catOrder.map((v, i) => {
+        const c = ly.cats.get(v);
+        const st = {color: c.color, glyph: c.glyph || ly.style.glyph, shape: ly.style.shape, fillOpacity: ly.style.fillOpacity};
+        return `<div class="cat"><input type="checkbox" class="cvis" data-ci="${i}" ${c.visible ? 'checked' : ''}>
+          <button class="sw" data-ci="${i}" title="Cambiar color / ícono">${swatchHtml(ly, st)}</button>
+          <span class="lbl" title="${esc(v)}">${esc(v)}</span><span class="n">(${fmt(c.n)})</span></div>`;
+      }).join('');
+    } else {
+      const st = {...ly.style};
+      const label = ly.styleBy === '__kml' ? 'Colores del KML' : 'Todos los elementos';
+      rows = `<div class="cat"><span style="width:14px"></span><button class="sw" data-ci="-1" title="Cambiar estilo">${swatchHtml(ly, st)}</button>
+        <span class="lbl" style="text-transform:none">${label}</span><span class="n">(${fmt(ly.features.length)})</span></div>`;
+    }
+    const kinds = [ly.counts.point && 'puntos', ly.counts.line && 'líneas', ly.counts.poly && 'polígonos'].filter(Boolean).join(', ');
+    return `<div class="layer" data-id="${ly.id}">
+      <div class="lhead"><input type="checkbox" class="lvis" ${ly.visible ? 'checked' : ''} title="Mostrar / ocultar">
+        <div class="lname" title="${esc(ly.name)} — ${esc(ly.file)} (${kinds})">${esc(ly.name)} <span class="lcount">${fmt(ly.features.length)}</span></div>
+        <button class="ibtn lmenu" title="Opciones de capa"><svg viewBox="0 0 24 24"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg></button></div>
+      <div class="lsub"><svg viewBox="0 0 24 24"><path d="M7 14c-1.66 0-3 1.34-3 3 0 1.31-1.16 2-2 2 .92 1.22 2.49 2 4 2 2.21 0 4-1.79 4-4 0-1.66-1.34-3-3-3zm13.71-9.37l-1.34-1.34a.996.996 0 00-1.41 0L9 12.25 11.75 15l8.96-8.96a.996.996 0 000-1.41z"/></svg>
+        <select class="stylesel">${opts.join('')}</select></div>
+      <div class="cats">${rows}</div>
+      ${ly.analyzed ? '' : '<div style="padding:2px 12px 0 36px;font-size:11px;color:#80868b">Usada como zona — no entra en las estadísticas</div>'}
+    </div>`;
+  }).join('');
+}
+const layerById = id => S.layers.find(l => l.id === +id);
+$('#layers').addEventListener('change', e => {
+  const ly = layerById(e.target.closest('.layer')?.dataset.id); if (!ly) return;
+  if (e.target.classList.contains('lvis')) { ly.visible = e.target.checked; refresh(); }
+  else if (e.target.classList.contains('cvis')) { ly.cats.get(ly.catOrder[+e.target.dataset.ci]).visible = e.target.checked; refresh(); }
+  else if (e.target.classList.contains('stylesel')) { setStyleBy(ly, e.target.value || null); renderPanel(); refresh(); }
+});
+$('#layers').addEventListener('click', e => {
+  const ly = layerById(e.target.closest('.layer')?.dataset.id); if (!ly) return;
+  const sw = e.target.closest('.sw'), mn = e.target.closest('.lmenu');
+  if (sw) openStyleEditor(sw, ly, +sw.dataset.ci);
+  else if (mn) openLayerMenu(mn, ly);
+});
+$('#layers').addEventListener('dblclick', e => {
+  const n = e.target.closest('.lname'); if (!n) return;
+  renameLayer(layerById(n.closest('.layer').dataset.id));
+});
+function renameLayer(ly) {
+  const v = prompt('Nombre de la capa', ly.name);
+  if (v && v.trim()) { ly.name = v.trim(); renderPanel(); refresh(); }
+}
+
+/* ---------- popover ---------- */
+const pop = $('#pop');
+function openPop(anchor, html, mount) {
+  pop.innerHTML = html; pop.style.display = 'block';
+  const r = anchor.getBoundingClientRect();
+  const pw = pop.offsetWidth, ph = pop.offsetHeight;
+  let x = r.left, y = r.bottom + 4;
+  if (x + pw > innerWidth - 8) x = innerWidth - pw - 8;
+  if (y + ph > innerHeight - 8) y = Math.max(8, r.top - ph - 4);
+  pop.style.left = Math.max(8, x) + 'px'; pop.style.top = y + 'px';
+  pop._anchor = anchor;
+  if (mount) mount(pop);
+}
+function closePop() { pop.style.display = 'none'; pop.innerHTML = ''; pop._anchor = null; }
+document.addEventListener('mousedown', e => { if (pop.style.display === 'block' && !pop.contains(e.target) && !(pop._anchor && pop._anchor.contains(e.target))) closePop(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { closePop(); $('#searchRes').style.display = 'none'; } });
+
+function openStyleEditor(anchor, ly, ci) {
+  const cat = ci >= 0 ? ly.cats.get(ly.catOrder[ci]) : null;
+  const cur = () => cat ? {color: cat.color, glyph: cat.glyph || ly.style.glyph} : {color: ly.style.color, glyph: ly.style.glyph};
+  const pts = ly.counts.point > 0, paths = ly.counts.line + ly.counts.poly > 0;
+  const colorLocked = !cat && ly.styleBy === '__kml';
+  const draw = () => {
+    const c = cur();
+    let h = '';
+    if (!colorLocked) {
+      h += `<div class="ph">Color${cat ? ' · ' + esc(ly.catOrder[ci]) : ''}</div><div class="pgrid">` +
+        PICKER.map(p => `<button data-color="${p}" class="${p === c.color ? 'on' : ''}" style="background:${p};${p === '#ffffff' ? 'box-shadow:inset 0 0 0 1px #ccc' : ''}"></button>`).join('') +
+        `</div><div class="prow">Personalizado <input type="color" id="pcol" value="${c.color}"></div>`;
+    } else h += `<div class="ph">Los colores vienen del KML</div><div class="prow" style="color:#5f6368">Elegí “Estilo uniforme” o “Estilo de…” para cambiarlos.</div>`;
+    if (pts) {
+      h += `<div class="ph">Forma (toda la capa)</div><div class="shp">` + Object.entries(SHAPES).map(([k, n]) => `<button data-shape="${k}" class="${ly.style.shape === k ? 'on' : ''}">${n}</button>`).join('') + '</div>';
+      if (ly.style.shape !== 'dot') h += `<div class="ph">Ícono${cat ? ' de la categoría' : ''}</div><div class="gl">` + Object.keys(GLYPHS).map(g =>
+        `<button data-glyph="${g}" class="${c.glyph === g ? 'on' : ''}" title="${g}">${g === 'none' ? '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/></svg>' : `<svg viewBox="0 0 24 24"><path d="${GLYPHS[g]}"/></svg>`}</button>`).join('') + '</div>'
+        + `<div class="prow">Texto o emoji <input type="text" id="ptxt" maxlength="4" placeholder="A · 1 · 🚧" value="${esc((c.glyph || '').startsWith('txt:') ? c.glyph.slice(4) : '')}" style="width:100px;border:1px solid var(--line);border-radius:4px;padding:4px 6px"></div>`;
+      h += `<div class="prow">Tamaño <input type="range" id="psize" min="0.6" max="1.8" step="0.1" value="${ly.style.size}"></div>`;
+    }
+    if (paths) {
+      h += `<div class="ph">Líneas y polígonos (toda la capa)</div>
+        <div class="prow">Grosor <input type="range" id="pwidth" min="1" max="10" step="1" value="${ly.style.width}"></div>`;
+      if (ly.counts.poly) h += `<div class="prow">Relleno <input type="range" id="pfo" min="0" max="1" step="0.05" value="${ly.style.fillOpacity}"></div>
+        <div class="prow"><label><input type="checkbox" id="plab" ${ly.style.labels ? 'checked' : ''}> Mostrar nombres</label></div>`;
+    }
+    return h + '<div style="height:6px"></div>';
+  };
+  const apply = () => { restyle(ly); renderPanel(); if (dashOpen) renderDash(); };
+  const setColor = col => { if (cat) cat.color = col; else ly.style.color = col; apply(); };
+  const mount = p => {
+    p.onclick = e => {
+      const b = e.target.closest('button'); if (!b) return;
+      if (b.dataset.color) setColor(b.dataset.color);
+      else if (b.dataset.shape) { ly.style.shape = b.dataset.shape; apply(); }
+      else if (b.dataset.glyph) { if (cat) cat.glyph = b.dataset.glyph; else ly.style.glyph = b.dataset.glyph; apply(); }
+      else return;
+      p.innerHTML = draw(); bindInputs(p);
+    };
+    bindInputs(p);
+  };
+  const bindInputs = p => {
+    const on = (id, ev, fn) => { const el = p.querySelector(id); if (el) el.addEventListener(ev, fn); };
+    on('#pcol', 'input', e => setColor(e.target.value));
+    on('#ptxt', 'input', e => { const v = e.target.value.trim(); const g = v ? 'txt:' + v : 'none'; if (cat) cat.glyph = g; else ly.style.glyph = g; apply(); });
+    on('#psize', 'input', e => { ly.style.size = +e.target.value; apply(); });
+    on('#pwidth', 'input', e => { ly.style.width = +e.target.value; apply(); });
+    on('#pfo', 'input', e => { ly.style.fillOpacity = +e.target.value; ly.style._kmlOpacity = false; apply(); });
+    on('#plab', 'change', e => { ly.style.labels = e.target.checked; apply(); });
+  };
+  openPop(anchor, draw(), mount);
+}
+
+function openLayerMenu(anchor, ly) {
+  openPop(anchor, `<div class="menu">
+    <button data-a="zoom">Acercar a la capa</button>
+    <button data-a="rename">Cambiar nombre</button>
+    <button data-a="analyze">${ly.analyzed ? 'Usar como zona (excluir de estadísticas)' : 'Incluir en estadísticas'}</button>
+    <button data-a="export">Exportar capa a KML</button>
+    <button data-a="up">Subir</button>
+    <button data-a="del" class="danger">Quitar capa</button></div>`, p => {
+    p.onclick = e => {
+      const a = e.target.closest('button')?.dataset.a; if (!a) return;
+      closePop();
+      if (a === 'zoom') fitLayers([ly]);
+      if (a === 'rename') renameLayer(ly);
+      if (a === 'analyze') { ly.analyzed = !ly.analyzed; computeFields(); renderPanel(); refresh(); }
+      if (a === 'export') download(ly.name + '.kml', buildKml(ly.features, ly.name), 'application/vnd.google-earth.kml+xml');
+      if (a === 'up') { const i = S.layers.indexOf(ly); if (i > 0) { S.layers.splice(i, 1); S.layers.splice(i - 1, 0, ly); renderPanel(); } }
+      if (a === 'del' && confirm(`¿Quitar la capa “${ly.name}” del mapa?`)) removeLayer(ly);
+    };
+  });
+}
+
+/* ---------- popups del mapa ---------- */
+function sanitize(html) {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  doc.querySelectorAll('script,style,iframe,object,embed,form').forEach(n => n.remove());
+  doc.querySelectorAll('*').forEach(n => [...n.attributes].forEach(a => { if (/^on/i.test(a.name) || /javascript:/i.test(a.value)) n.removeAttribute(a.name); }));
+  return doc.body.innerHTML;
+}
+function valHtml(v) {
+  const s = String(v ?? '');
+  if (/^https?:\/\/\S+\.(jpe?g|png|gif|webp)(\?\S*)?$/i.test(s)) return `<img src="${esc(s)}" loading="lazy">`;
+  if (/^https?:\/\/\S+$/i.test(s)) return `<a href="${esc(s)}" target="_blank" rel="noopener">${esc(s.length > 40 ? s.slice(0, 40) + '…' : s)}</a>`;
+  return esc(s);
+}
+function popupHtml(f) {
+  const p = f.properties;
+  const rows = Object.keys(p).filter(k => !STYLE_KEYS.has(k) && String(p[k] ?? '').trim() !== '')
+    .map(k => `<tr><td>${esc(k)}</td><td>${valHtml(p[k])}</td></tr>`).join('');
+  const media = String(p.gx_media_links || '').split(/\s+/).filter(Boolean).map(u => `<img src="${esc(u)}" loading="lazy">`).join('');
+  const desc = p.description && !p.__desc_parsed ? `<div class="desc">${sanitize(p.description)}</div>` : '';
+  const zbtn = f.kind === 'poly' ? `<button class="zbtn" onclick="App.zoneFromPopup(${f.id})">${S.zoneSel.has(f.id) ? 'Quitar filtro de esta zona' : 'Filtrar dashboard por esta zona'}</button>` : '';
+  const zs = f.zones && f.zones.length ? `<div class="pp-l">Zona: ${f.zones.map(z => esc(S.zoneById.get(z)?.name)).join(', ')}</div>` : '';
+  return `<div class="pp"><div class="pp-t">${esc(p.name || '(sin nombre)')}</div><div class="pp-l">${esc(f.ly.name)}</div>${zs}
+    ${rows ? `<table>${rows}</table>` : ''}${media}${desc}${zbtn}</div>`;
+}
+window.App = {
+  zoneFromPopup(id) { toggleZone(id); map.closePopup(); if (!dashOpen) openDash(true); toast(S.zoneSel.has(id) ? 'Filtro de zona aplicado' : 'Filtro de zona quitado'); },
+};
+
+/* =====================================================================
+   Dashboard
+   ===================================================================== */
+Chart.defaults.font.family = 'Roboto, Arial, sans-serif';
+Chart.defaults.font.size = 12;
+Chart.defaults.color = '#52514e';
+Chart.defaults.borderColor = '#eceae6';
+Chart.defaults.animation.duration = 250;
+Chart.defaults.plugins.tooltip.backgroundColor = '#202124';
+Chart.defaults.plugins.tooltip.padding = 8;
+Chart.defaults.plugins.tooltip.cornerRadius = 4;
+Chart.register({
+  id: 'barLabels',
+  afterDatasetsDraw(chart, a, o) {
+    if (!o || !o.show) return;
+    const ctx = chart.ctx, horiz = chart.options.indexAxis === 'y';
+    ctx.save(); ctx.font = '12px Roboto, Arial, sans-serif'; ctx.fillStyle = '#52514e';
+    const ds = chart.data.datasets[0], meta = chart.getDatasetMeta(0);
+    meta.data.forEach((el, i) => {
+      const v = ds.data[i]; if (!v) return;
+      const t = o.total ? `${fmt(v)} · ${pctS(v, o.total)}` : fmt(v);
+      if (horiz) { ctx.textBaseline = 'middle'; ctx.textAlign = 'left'; ctx.fillText(t, el.x + 6, el.y); }
+      else if (o.every == null || i % o.every === 0) { ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; ctx.fillText(fmt(v), el.x, el.y - 3); }
+    });
+    ctx.restore();
+  }
+});
+Chart.register({
+  id: 'center',
+  afterDraw(chart, a, o) {
+    if (!o || o.text == null) return;
+    const m = chart.getDatasetMeta(0).data[0]; if (!m) return;
+    const ctx = chart.ctx; ctx.save(); ctx.textAlign = 'center';
+    ctx.fillStyle = '#202124'; ctx.font = '500 20px Roboto, Arial'; ctx.textBaseline = 'bottom'; ctx.fillText(o.text, m.x, m.y + 4);
+    ctx.fillStyle = '#5f6368'; ctx.font = '11px Roboto, Arial'; ctx.textBaseline = 'top'; ctx.fillText(o.sub || '', m.x, m.y + 6);
+    ctx.restore();
+  }
+});
+const charts = {};
+function mkChart(id, cfg) {
+  if (charts[id]) { charts[id].destroy(); delete charts[id]; }
+  const cv = document.getElementById(id); if (!cv) return;
+  charts[id] = new Chart(cv, cfg);
+}
+
+function fieldLabel(k) { return k === '__layer' ? 'Capa' : k; }
+function colorFor(k, v) {
+  if (v === '__other') return OTHER;
+  if (k === '__layer') { const ly = S.layers.find(l => l.name === v); return ly ? (ly.styleBy === '__kml' ? ly.style.color : ly.style.color) : OTHER; }
+  const ly = S.layers.find(l => l.analyzed && l.styleBy === k && l.cats.has(v));
+  if (ly) return ly.cats.get(v).color;
+  const fd = S.fieldMap.get(k); const r = fd ? fd.rank.get(v) : null;
+  return r != null && r < VIZ.length ? VIZ[r] : OTHER;
+}
+const hasKey = (f, k) => k === '__layer' || f.ly.keys.has(k);
+function countBy(fs, k) {
+  const m = new Map();
+  for (const f of fs) {
+    if (!hasKey(f, k)) continue; const v = getVal(f, k); m.set(v, (m.get(v) || 0) + 1); }
+  return [...m.entries()].sort((a, b) => b[1] - a[1]);
+}
+function topN(entries, n) {
+  if (entries.length <= n) return entries;
+  const rest = entries.slice(n - 1).reduce((a, e) => a + e[1], 0);
+  return entries.slice(0, n - 1).concat([[`Otros (${entries.length - n + 1})`, rest, true]]);
+}
+function fieldOptions(sel, types = ['cat'], extra = true) {
+  const o = [];
+  if (extra && S.layers.filter(l => l.analyzed).length) o.push(`<option value="__layer" ${sel === '__layer' ? 'selected' : ''}>Capa</option>`);
+  for (const f of S.fields) if (types.includes(f.type) && (f.type !== 'cat' || f.uniq >= 1))
+    o.push(`<option value="${esc(f.key)}" ${sel === f.key ? 'selected' : ''}>${esc(f.key)}</option>`);
+  return o.join('');
+}
+function hbar(id, entries, k, total, clickable) {
+  const labels = entries.map(e => e[0]), data = entries.map(e => e[1]);
+  const colors = entries.map(e => e[2] ? OTHER : colorFor(k, e[0]));
+  const h = Math.max(120, entries.length * 26 + 30);
+  document.getElementById(id).parentNode.style.height = h + 'px';
+  mkChart(id, {
+    type: 'bar',
+    data: {labels, datasets: [{data, backgroundColor: colors, borderRadius: 4, borderSkipped: 'start', maxBarThickness: 18, categoryPercentage: .85, barPercentage: .85}]},
+    options: {
+      indexAxis: 'y', maintainAspectRatio: false, responsive: true, layout: {padding: {right: 96}},
+      scales: {
+        x: {beginAtZero: true, grid: {color: '#f0efec'}, border: {display: false}, ticks: {precision: 0, maxTicksLimit: 6}},
+        y: {grid: {display: false}, border: {display: false}, ticks: {autoSkip: false, callback(v) { const l = this.getLabelForValue(v); return l.length > 26 ? l.slice(0, 25) + '…' : l; }}},
+      },
+      plugins: {legend: {display: false}, barLabels: {show: true, total},
+        tooltip: {callbacks: {title: c => c[0].label, label: c => `${fmt(c.raw)} registros (${pctS(c.raw, total)})`}}},
+      onClick: (e, els) => { if (els.length && clickable && !entries[els[0].index][2]) clickable(entries[els[0].index][0]); },
+      onHover: (e, els) => { e.native.target.style.cursor = els.length && clickable ? 'pointer' : 'default'; },
+    }
+  });
+}
+
+function renderDash() {
+  renderChips();
+  const all = analyzedFeats().filter(catVisible);
+  const fs = all.filter(f => passes(f));
+  const body = $('#dbody');
+  const nFilt = S.filters.size + (S.zoneSel.size ? 1 : 0) + (S.viewOnly ? 1 : 0);
+  $('#dmeta').textContent = S.layers.length ? `${fmt(fs.length)} de ${fmt(all.length)} registros${nFilt ? ` · ${nFilt} filtro${nFilt > 1 ? 's' : ''} activo${nFilt > 1 ? 's' : ''}` : ''}` : '';
+  if (!S.layers.length) { Object.keys(charts).forEach(k => { charts[k].destroy(); delete charts[k]; }); body.innerHTML = '<div class="nodata">Cargá uno o más KML para ver estadísticas.</div>'; return; }
+  if (!all.length) { body.innerHTML = '<div class="nodata">No hay capas incluidas en las estadísticas. Activá alguna desde el filtro “Capas”.</div>'; return; }
+
+  // posiciones de scroll para no saltar al re-renderizar
+  const sc = body.scrollTop;
+  const dist = S.dist, distE = dist ? countBy(fs, dist) : [];
+  const top = distE[0];
+  const hasZones = S.zones.length > 0 && all.some(f => f.zones && f.zones.length);
+  const dateF = S.dateField ? S.fieldMap.get(S.dateField) : null;
+  const numF = S.numField ? S.fieldMap.get(S.numField) : null;
+  const lyCount = new Set(fs.map(f => f.ly.id)).size;
+
+  body.innerHTML = `
+    <div class="kpis">
+      <div class="kpi"><div class="k">Registros filtrados</div><div class="v">${fmt(fs.length)}</div>
+        <div class="s">de ${fmt(all.length)} en total</div><div class="meter"><i style="width:${all.length ? fs.length / all.length * 100 : 0}%"></i></div></div>
+      <div class="kpi"><div class="k">Porcentaje del total</div><div class="v">${pctS(fs.length, all.length)}</div><div class="s">${nFilt ? nFilt + ' filtro(s) aplicados' : 'Sin filtros'}</div></div>
+      <div class="kpi"><div class="k">Capas con datos</div><div class="v">${lyCount}</div><div class="s">${S.layers.filter(l => l.analyzed).length} incluidas en estadísticas</div></div>
+      ${dist && top ? `<div class="kpi"><div class="k">Valor más frecuente · ${esc(fieldLabel(dist))}</div><div class="v" style="font-size:18px;margin-top:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(top[0])}">${esc(top[0])}</div><div class="s">${fmt(top[1])} registros · ${pctS(top[1], fs.length)}</div></div>` : ''}
+      ${hasZones ? `<div class="kpi"><div class="k">Dentro de zonas</div><div class="v">${fmt(fs.filter(f => f.zones.length).length)}</div><div class="s">${pctS(fs.filter(f => f.zones.length).length, fs.length)} de lo filtrado</div></div>` : ''}
+    </div>
+    <div class="grid" style="margin-top:12px">
+      <div class="card"><div class="ch"><h3>Cantidad por</h3><select id="selDist">${fieldOptions(dist)}</select><span class="x">clic en una barra = filtrar</span></div><div class="cwrap"><canvas id="cDist"></canvas></div></div>
+      <div class="card"><div class="ch"><h3>Porcentaje · ${esc(fieldLabel(dist || ''))}</h3></div><div class="cwrap" style="height:260px"><canvas id="cPie"></canvas></div></div>
+      ${hasZones ? `<div class="card"><div class="ch"><h3>Registros por zona</h3><span class="x">clic = filtrar por zona</span></div><div class="cwrap"><canvas id="cZone"></canvas></div></div>` : ''}
+      <div class="card"><div class="ch"><h3>Cruce</h3><select id="selA">${fieldOptions(S.crossA)}</select><span class="x">por</span><select id="selB">${fieldOptions(S.crossB)}</select></div><div class="cwrap"><canvas id="cCross"></canvas></div></div>
+      ${dateF ? `<div class="card"><div class="ch"><h3>Evolución en el tiempo</h3><select id="selDate">${fieldOptions(S.dateField, ['date'], false)}</select></div><div class="cwrap" style="height:220px"><canvas id="cTime"></canvas></div></div>` : ''}
+      ${numF ? `<div class="card"><div class="ch"><h3>Columna numérica</h3><select id="selNum">${fieldOptions(S.numField, ['num'], false)}</select></div><div id="numStats"></div><div class="cwrap" style="height:170px"><canvas id="cNum"></canvas></div></div>` : ''}
+      <div class="card wide"><div class="ch"><h3>Registros</h3></div>
+        <div class="tblbar"><input type="search" id="tblQ" placeholder="Buscar en la tabla…" value="${esc(S.tableQ)}"><div class="pg" id="pg"></div></div>
+        <div class="twrap" id="twrap"></div></div>
+    </div>`;
+  body.scrollTop = sc;
+
+  // --- distribución + torta
+  if (dist) {
+    hbar('cDist', topN(distE, 15), dist, fs.length, v => toggleCatFilter(dist, v));
+    const pe = topN(distE, 7);
+    mkChart('cPie', {
+      type: 'doughnut',
+      data: {labels: pe.map(e => e[0]), datasets: [{data: pe.map(e => e[1]), backgroundColor: pe.map(e => e[2] ? OTHER : colorFor(dist, e[0])), borderColor: '#fff', borderWidth: 2, hoverOffset: 4}]},
+      options: {
+        maintainAspectRatio: false, cutout: '62%',
+        plugins: {
+          center: {text: fmt(fs.length), sub: 'registros'},
+          legend: {position: 'right', labels: {boxWidth: 10, boxHeight: 10, usePointStyle: true, pointStyle: 'circle', padding: 10,
+            generateLabels: ch => Chart.overrides.doughnut.plugins.legend.labels.generateLabels(ch).map(l => ({...l, text: `${l.text.length > 22 ? l.text.slice(0, 21) + '…' : l.text}  ${pctS(pe[l.index][1], fs.length)}`}))}},
+          tooltip: {callbacks: {label: c => ` ${c.label}: ${fmt(c.raw)} (${pctS(c.raw, fs.length)})`}},
+        },
+        onClick: (e, els) => { if (els.length && !pe[els[0].index][2]) toggleCatFilter(dist, pe[els[0].index][0]); },
+      }
+    });
+  } else { $('#cDist').parentNode.innerHTML = '<div class="nodata">No hay columnas categóricas.</div>'; $('#cPie').parentNode.innerHTML = ''; }
+
+  // --- zonas
+  if (hasZones) {
+    const m = new Map();
+    for (const f of fs) for (const z of f.zones) m.set(z, (m.get(z) || 0) + 1);
+    let ze = [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, 25);
+    const entries = ze.map(([id, n]) => [S.zoneById.get(id).name + (S.zoneSel.has(id) ? ' ✓' : ''), n, false, id]);
+    if (!entries.length) $('#cZone').parentNode.innerHTML = '<div class="nodata">Ningún registro filtrado cae dentro de una zona.</div>';
+    else {
+      hbar('cZone', entries, '__zone', fs.length, null);
+      charts.cZone.data.datasets[0].backgroundColor = entries.map(e => S.zoneSel.has(e[3]) ? '#1c5cab' : '#6da7ec');
+      charts.cZone.options.onClick = (e, els) => { if (els.length) toggleZone(entries[els[0].index][3]); };
+      charts.cZone.options.onHover = (e, els) => { e.native.target.style.cursor = els.length ? 'pointer' : 'default'; };
+      charts.cZone.update('none');
+    }
+  }
+
+  // --- cruce apilado
+  renderCross(fs);
+  if (dateF) renderTime(fs);
+  if (numF) renderNum(fs);
+  renderTable(fs);
+
+  $('#selDist').onchange = e => { S.dist = e.target.value; renderDash(); };
+  $('#selA').onchange = e => { S.crossA = e.target.value; renderDash(); };
+  $('#selB').onchange = e => { S.crossB = e.target.value; renderDash(); };
+  if ($('#selDate')) $('#selDate').onchange = e => { S.dateField = e.target.value; renderDash(); };
+  if ($('#selNum')) $('#selNum').onchange = e => { S.numField = e.target.value; renderDash(); };
+  $('#tblQ').oninput = e => { S.tableQ = e.target.value; S.page = 0; renderTable(fs); };
+}
+
+function renderCross(fs) {
+  const A = S.crossA, B = S.crossB;
+  if (!A || !B) { $('#cCross').parentNode.innerHTML = '<div class="nodata">Elegí dos columnas.</div>'; return; }
+  const aE = topN(countBy(fs, A), 10);
+  const aKeys = aE.map(e => e[0]), aOther = new Set(countBy(fs, A).slice(9).map(e => e[0]));
+  const isOtherA = v => aE.length === 10 && aOther.has(v) && aE[9][2];
+  const bAll = countBy(fs, B);
+  const bKeys = bAll.slice(0, bAll.length > 7 ? 6 : 7).map(e => e[0]);
+  const hasOtherB = bAll.length > 7;
+  const idxA = new Map(aKeys.map((k, i) => [k, i]));
+  const mat = new Map(bKeys.map(k => [k, new Array(aKeys.length).fill(0)]));
+  if (hasOtherB) mat.set('__other', new Array(aKeys.length).fill(0));
+  for (const f of fs) {
+    if (!hasKey(f, A) || !hasKey(f, B)) continue;
+    let a = getVal(f, A); if (isOtherA(a)) a = aKeys[9];
+    const ai = idxA.get(a); if (ai == null) continue;
+    let b = getVal(f, B); if (!mat.has(b)) b = '__other';
+    mat.get(b)[ai]++;
+  }
+  // colores: orden fijo por frecuencia global (no por lo filtrado) para que no cambien al filtrar
+  const bCol = k => {
+    if (k === '__other') return OTHER;
+    const ly = S.layers.find(l => l.analyzed && l.styleBy === B && l.cats.has(k));
+    if (ly || B === '__layer') return colorFor(B, k);
+    const fd = S.fieldMap.get(B), r = fd ? fd.rank.get(k) : null;
+    return r != null && r < VIZ.length ? VIZ[r] : VIZ[bKeys.indexOf(k) % VIZ.length];
+  };
+  const datasets = [...mat.entries()].map(([k, arr]) => ({
+    label: k === '__other' ? `Otros (${bAll.length - bKeys.length})` : k, data: arr, backgroundColor: bCol(k),
+    borderColor: '#fff', borderWidth: {left: 0, right: 2, top: 0, bottom: 0}, borderSkipped: false, maxBarThickness: 18,
+  }));
+  $('#cCross').parentNode.style.height = Math.max(160, aKeys.length * 28 + 70) + 'px';
+  mkChart('cCross', {
+    type: 'bar', data: {labels: aKeys, datasets},
+    options: {
+      indexAxis: 'y', maintainAspectRatio: false,
+      scales: {x: {stacked: true, beginAtZero: true, grid: {color: '#f0efec'}, border: {display: false}, ticks: {precision: 0, maxTicksLimit: 6}},
+               y: {stacked: true, grid: {display: false}, border: {display: false}, ticks: {autoSkip: false, callback(v) { const l = this.getLabelForValue(v); return l.length > 22 ? l.slice(0, 21) + '…' : l; }}}},
+      plugins: {
+        legend: {position: 'bottom', labels: {boxWidth: 10, boxHeight: 10, usePointStyle: true, pointStyle: 'circle', padding: 12,
+          generateLabels: ch => Chart.defaults.plugins.legend.labels.generateLabels(ch).map(l => ({...l, text: l.text.length > 24 ? l.text.slice(0, 23) + '…' : l.text}))}},
+        tooltip: {mode: 'index', axis: 'y', callbacks: {
+          label: c => c.raw ? ` ${c.dataset.label}: ${fmt(c.raw)} (${pctS(c.raw, c.chart.data.datasets.reduce((a, d) => a + d.data[c.dataIndex], 0))})` : null}},
+      },
+    }
+  });
+}
+
+function renderTime(fs) {
+  const k = S.dateField; const ds = fs.map(f => parseDate(f.properties[k])).filter(Boolean);
+  if (!ds.length) { $('#cTime').parentNode.innerHTML = '<div class="nodata">Sin fechas en lo filtrado.</div>'; return; }
+  const min = Math.min(...ds.map(d => +d)), max = Math.max(...ds.map(d => +d));
+  const byDay = (max - min) / 864e5 <= 62;
+  const key = d => byDay ? d.toISOString().slice(0, 10) : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  const m = new Map();
+  // completar huecos
+  const cur = new Date(min); cur.setHours(0, 0, 0, 0); if (!byDay) cur.setDate(1);
+  let guard = 0;
+  while (+cur <= max && guard++ < 400) { m.set(key(cur), 0); byDay ? cur.setDate(cur.getDate() + 1) : cur.setMonth(cur.getMonth() + 1); }
+  for (const d of ds) m.set(key(d), (m.get(key(d)) || 0) + 1);
+  const keys = [...m.keys()].sort();
+  const MES = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+  const lab = s => byDay ? s.slice(8, 10) + '/' + s.slice(5, 7) : MES[+s.slice(5, 7) - 1] + ' ' + s.slice(2, 4);
+  mkChart('cTime', {
+    type: 'bar',
+    data: {labels: keys.map(lab), datasets: [{data: keys.map(k2 => m.get(k2)), backgroundColor: '#2a78d6', borderRadius: 4, borderSkipped: 'start', maxBarThickness: 28}]},
+    options: {maintainAspectRatio: false, layout: {padding: {top: 16}},
+      scales: {x: {grid: {display: false}, border: {display: false}, ticks: {maxRotation: 0, autoSkip: true}}, y: {beginAtZero: true, grid: {color: '#f0efec'}, border: {display: false}, ticks: {precision: 0, maxTicksLimit: 5}}},
+      plugins: {legend: {display: false}, barLabels: {show: keys.length <= 24}, tooltip: {callbacks: {label: c => ` ${fmt(c.raw)} registros`}}}}
+  });
+}
+
+function renderNum(fs) {
+  const k = S.numField;
+  const vs = fs.map(f => parseNum(f.properties[k])).filter(n => !isNaN(n)).sort((a, b) => a - b);
+  if (!vs.length) { $('#numStats').innerHTML = '<div class="nodata">Sin valores numéricos en lo filtrado.</div>'; $('#cNum').parentNode.style.display = 'none'; return; }
+  const sum = vs.reduce((a, b) => a + b, 0), med = vs.length % 2 ? vs[(vs.length - 1) / 2] : (vs[vs.length / 2 - 1] + vs[vs.length / 2]) / 2;
+  $('#numStats').innerHTML = `<div class="stats">
+    <div><b>${fmt(sum)}</b><span>Suma</span></div><div><b>${fmt(sum / vs.length)}</b><span>Promedio</span></div><div><b>${fmt(med)}</b><span>Mediana</span></div>
+    <div><b>${fmt(vs[0])}</b><span>Mínimo</span></div><div><b>${fmt(vs[vs.length - 1])}</b><span>Máximo</span></div><div><b>${fmt(vs.length)}</b><span>Con valor</span></div></div>`;
+  const bins = 12, lo = vs[0], hi = vs[vs.length - 1], w = (hi - lo) / bins || 1;
+  const cnt = new Array(bins).fill(0);
+  for (const v of vs) cnt[Math.min(bins - 1, Math.floor((v - lo) / w))]++;
+  mkChart('cNum', {
+    type: 'bar',
+    data: {labels: cnt.map((_, i) => `${fmt(lo + i * w)} – ${fmt(lo + (i + 1) * w)}`), datasets: [{data: cnt, backgroundColor: '#2a78d6', borderRadius: 3, borderSkipped: 'start', categoryPercentage: 1, barPercentage: .92}]},
+    options: {maintainAspectRatio: false, scales: {x: {grid: {display: false}, border: {display: false}, ticks: {display: false}}, y: {beginAtZero: true, grid: {color: '#f0efec'}, border: {display: false}, ticks: {precision: 0, maxTicksLimit: 4}}},
+      plugins: {legend: {display: false}, tooltip: {callbacks: {title: c => c[0].label, label: c => ` ${fmt(c.raw)} registros`}}}}
+  });
+}
+
+function renderTable(fs) {
+  const q = norm(S.tableQ);
+  let rows = q ? fs.filter(f => norm(f.properties.name).includes(q) || norm(f.ly.name).includes(q) || S.fields.some(fd => norm(f.properties[fd.key]).includes(q))) : fs.slice();
+  const cols = S.fields.filter(fd => fd.key !== 'name').slice(0, 20).map(fd => fd.key);
+  const hasName = fs.some(f => f.properties.name);
+  if (S.sortKey) {
+    const k = S.sortKey, d = S.sortDir;
+    const get = f => k === '__layer' ? f.ly.name : k === 'name' ? (f.properties.name || '') : (f.properties[k] ?? '');
+    rows.sort((a, b) => { const x = get(a), y = get(b), nx = parseNum(x), ny = parseNum(y);
+      return (!isNaN(nx) && !isNaN(ny) ? nx - ny : String(x).localeCompare(String(y), 'es')) * d; });
+  }
+  const per = 50, pages = Math.max(1, Math.ceil(rows.length / per));
+  S.page = Math.min(S.page, pages - 1);
+  const slice = rows.slice(S.page * per, S.page * per + per);
+  const arrow = k => S.sortKey === k ? (S.sortDir > 0 ? ' ▲' : ' ▼') : '';
+  const head = `<th data-k="__layer">Capa${arrow('__layer')}</th>` + (hasName ? `<th data-k="name">Nombre${arrow('name')}</th>` : '') + cols.map(c => `<th data-k="${esc(c)}">${esc(c)}${arrow(c)}</th>`).join('');
+  const body = slice.map(f => {
+    const st = featStyle(f);
+    return `<tr data-f="${f.id}"><td><span class="dot" style="background:${st.color}"></span>${esc(f.ly.name)}</td>` +
+      (hasName ? `<td>${esc(f.properties.name || '')}</td>` : '') + cols.map(c => `<td title="${esc(f.properties[c])}">${esc(f.properties[c] ?? '')}</td>`).join('') + '</tr>';
+  }).join('');
+  $('#twrap').innerHTML = `<table class="t"><thead><tr>${head}</tr></thead><tbody>${body || `<tr><td colspan="${cols.length + 2}" style="color:#5f6368">Sin resultados</td></tr>`}</tbody></table>`;
+  $('#pg').innerHTML = `${fmt(rows.length)} filas · pág. ${S.page + 1}/${pages} <button class="btn" id="pgPrev" ${S.page ? '' : 'disabled'}>‹</button><button class="btn" id="pgNext" ${S.page < pages - 1 ? '' : 'disabled'}>›</button>`;
+  $('#pgPrev').onclick = () => { S.page--; renderTable(fs); };
+  $('#pgNext').onclick = () => { S.page++; renderTable(fs); };
+  $('#twrap thead').onclick = e => { const k = e.target.closest('th')?.dataset.k; if (!k) return; S.sortDir = S.sortKey === k ? -S.sortDir : 1; S.sortKey = k; renderTable(fs); };
+  $('#twrap tbody').onclick = e => { const id = +e.target.closest('tr')?.dataset.f; const f = S.feats.find(x => x.id === id); if (f) focusFeature(f); };
+}
+function focusFeature(f) {
+  const bb = bboxOf(f.geometry);
+  if (f.kind === 'point') map.setView([f.rep[1], f.rep[0]], Math.max(map.getZoom(), 17));
+  else map.fitBounds([[bb[1], bb[0]], [bb[3], bb[2]]], {maxZoom: 18, padding: [30, 30]});
+  setTimeout(() => { if (!f._shown) toast('Ese elemento está oculto por los filtros del mapa'); else { let l; leaves(f._lyr, x => l = l || x); f._lyr.openPopup(l.getLatLng ? l.getLatLng() : L.latLng(f.rep[1], f.rep[0])); } }, 350);
+}
+
+/* ---------- chips de filtro ---------- */
+const CHIP_SVG = '<svg viewBox="0 0 24 24"><path d="M7 10l5 5 5-5z"/></svg>';
+function renderChips() {
+  const out = [];
+  const an = S.layers.filter(l => l.analyzed).length;
+  const excl = S.layers.some(l => !l.analyzed && (l.counts.point || l.counts.line));
+  out.push(`<button class="chip fixed ${excl ? 'on' : ''}" data-chip="__layers">Capas <span class="cv">${an}/${S.layers.length}</span>${CHIP_SVG}</button>`);
+  if (S.zones.length) out.push(`<button class="chip fixed ${S.zoneSel.size ? 'on' : ''}" data-chip="__zones">Zona${S.zoneSel.size ? ` <span class="cv">(${S.zoneSel.size})</span>` : ''}${CHIP_SVG}</button>`);
+  const ordered = [...S.fields].sort((a, b) => (S.filters.has(b.key) - S.filters.has(a.key)) || ({cat: 0, date: 1, num: 2, text: 3}[a.type] - {cat: 0, date: 1, num: 2, text: 3}[b.type]) || a.uniq - b.uniq);
+  for (const fd of ordered) {
+    const fl = S.filters.get(fd.key);
+    let cv = '';
+    if (fl?.type === 'cat') cv = fl.sel.size === 1 ? `: ${[...fl.sel][0]}` : ` (${fl.sel.size})`;
+    else if (fl?.type === 'text') cv = `: “${fl.q}”`;
+    else if (fl) cv = ' ✓';
+    if (cv.length > 30) cv = cv.slice(0, 29) + '…';
+    out.push(`<button class="chip ${fl ? 'on' : ''}" data-chip="${esc(fd.key)}">${esc(fd.key)}<span class="cv">${esc(cv)}</span>${CHIP_SVG}</button>`);
+  }
+  $('#chips').innerHTML = out.join('');
+}
+$('#chips').addEventListener('click', e => {
+  const c = e.target.closest('.chip'); if (!c) return;
+  const k = c.dataset.chip;
+  if (k === '__layers') openLayersFilter(c);
+  else if (k === '__zones') openZoneFilter(c);
+  else openFieldFilter(c, S.fieldMap.get(k));
+});
+function listPop(anchor, title, items, isOn, onToggle, onAll, onNone) {
+  // items: [{key, label, n, color}]
+  const html = `<div class="fl"><div class="ph" style="padding:0 0 6px">${esc(title)}</div>
+    <input type="search" placeholder="Buscar valor…" id="flq">
+    <div class="bt"><button id="flAll">Todos</button><button id="flNone">Ninguno</button></div>
+    <div class="flist" id="fll"></div></div>`;
+  openPop(anchor, html, p => {
+    const draw = () => {
+      const q = norm(p.querySelector('#flq').value);
+      p.querySelector('#fll').innerHTML = items.filter(it => !q || norm(it.label).includes(q)).slice(0, 400).map(it =>
+        `<label><input type="checkbox" data-k="${esc(it.key)}" ${isOn(it.key) ? 'checked' : ''}>${it.color ? `<span class="dot" style="background:${it.color}"></span>` : ''}<span title="${esc(it.label)}">${esc(it.label)}</span>${it.n != null ? `<em>${fmt(it.n)}</em>` : ''}</label>`).join('') || '<div style="color:#5f6368;font-size:12px;padding:6px">Sin coincidencias</div>';
+    };
+    draw();
+    p.querySelector('#flq').oninput = draw;
+    p.querySelector('#fll').onchange = e => { onToggle(e.target.dataset.k, e.target.checked); draw(); };
+    p.querySelector('#flAll').onclick = () => { onAll(); draw(); };
+    p.querySelector('#flNone').onclick = () => { onNone(); draw(); };
+    setTimeout(() => p.querySelector('#flq')?.focus(), 0);
+  });
+}
+function openFieldFilter(anchor, fd) {
+  const k = fd.key;
+  if (fd.type === 'cat') {
+    const base = analyzedFeats().filter(f => catVisible(f) && passes(f, k));
+    const counts = new Map(); for (const f of base) { const v = catVal(f.properties[k]); counts.set(v, (counts.get(v) || 0) + 1); }
+    const items = fd.order.map(v => ({key: v, label: v, n: counts.get(v) || 0, color: colorFor(k, v)}));
+    const isOn = v => { const fl = S.filters.get(k); return !fl || fl.sel.has(v); };
+    listPop(anchor, k, items, isOn, (v, on) => {
+      let fl = S.filters.get(k);
+      if (!fl) { fl = {type: 'cat', sel: new Set(fd.order)}; S.filters.set(k, fl); }
+      on ? fl.sel.add(v) : fl.sel.delete(v);
+      if (fl.sel.size === fd.order.length) S.filters.delete(k);
+      refresh();
+    }, () => { S.filters.delete(k); refresh(); }, () => { S.filters.set(k, {type: 'cat', sel: new Set()}); refresh(); });
+    return;
+  }
+  const fl = S.filters.get(k) || {};
+  let html;
+  if (fd.type === 'num') {
+    const vs = fd.order.map(parseNum).filter(n => !isNaN(n));
+    html = `<div class="fl"><div class="ph" style="padding:0 0 6px">${esc(k)} (entre ${fmt(Math.min(...vs))} y ${fmt(Math.max(...vs))})</div>
+      <div class="two"><div><label>Desde</label><input type="number" id="fmin" value="${fl.min ?? ''}"></div><div><label>Hasta</label><input type="number" id="fmax" value="${fl.max ?? ''}"></div></div>
+      <div class="bt"><button id="fok">Aplicar</button><button id="fclr">Quitar filtro</button></div></div>`;
+  } else if (fd.type === 'date') {
+    const d2i = d => d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` : '';
+    html = `<div class="fl"><div class="ph" style="padding:0 0 6px">${esc(k)}</div>
+      <div class="two"><div><label>Desde</label><input type="date" id="fmin" value="${d2i(fl.from)}"></div><div><label>Hasta</label><input type="date" id="fmax" value="${d2i(fl.to)}"></div></div>
+      <div class="bt"><button id="fok">Aplicar</button><button id="fclr">Quitar filtro</button></div></div>`;
+  } else {
+    html = `<div class="fl"><div class="ph" style="padding:0 0 6px">${esc(k)} contiene…</div>
+      <input type="text" id="fmin" value="${esc(fl.q || '')}" placeholder="Texto a buscar">
+      <div class="bt"><button id="fok">Aplicar</button><button id="fclr">Quitar filtro</button></div></div>`;
+  }
+  openPop(anchor, html, p => {
+    const a = p.querySelector('#fmin'), b = p.querySelector('#fmax');
+    const ok = () => {
+      if (fd.type === 'num') {
+        const mn = a.value === '' ? null : +a.value, mx = b.value === '' ? null : +b.value;
+        mn == null && mx == null ? S.filters.delete(k) : S.filters.set(k, {type: 'num', min: mn, max: mx});
+      } else if (fd.type === 'date') {
+        const fr = a.value ? new Date(a.value + 'T00:00') : null, to = b.value ? new Date(b.value + 'T23:59:59') : null;
+        !fr && !to ? S.filters.delete(k) : S.filters.set(k, {type: 'date', from: fr, to});
+      } else {
+        a.value.trim() ? S.filters.set(k, {type: 'text', q: a.value.trim()}) : S.filters.delete(k);
+      }
+      closePop(); refresh();
+    };
+    p.querySelector('#fok').onclick = ok;
+    p.querySelector('#fclr').onclick = () => { S.filters.delete(k); closePop(); refresh(); };
+    p.addEventListener('keydown', e => { if (e.key === 'Enter') ok(); });
+    setTimeout(() => a.isConnected && a.focus(), 0);
+  });
+}
+function openLayersFilter(anchor) {
+  const items = S.layers.map(l => ({key: String(l.id), label: l.name, n: l.features.length, color: l.style.color}));
+  const upd = () => { computeFields(); renderPanel(); refresh(); };
+  listPop(anchor, 'Capas incluidas en las estadísticas', items, id => layerById(id).analyzed,
+    (id, on) => { layerById(id).analyzed = on; upd(); },
+    () => { S.layers.forEach(l => l.analyzed = true); upd(); },
+    () => { S.layers.forEach(l => l.analyzed = false); upd(); });
+}
+function openZoneFilter(anchor) {
+  const cnt = new Map(); for (const f of analyzedFeats()) if (catVisible(f) && passes(f, '__zone')) for (const z of f.zones || []) cnt.set(z, (cnt.get(z) || 0) + 1);
+  const items = S.zones.map(z => ({key: String(z.id), label: `${z.name}`, n: cnt.get(z.id) || 0})).sort((a, b) => a.label.localeCompare(b.label, 'es', {numeric: true}));
+  listPop(anchor, 'Registros dentro de las zonas', items, id => S.zoneSel.has(+id),
+    (id, on) => { on ? S.zoneSel.add(+id) : S.zoneSel.delete(+id); refresh(); },
+    () => { S.zones.forEach(z => S.zoneSel.add(z.id)); refresh(); },
+    () => { S.zoneSel.clear(); refresh(); });
+}
+
+/* ---------- abrir / cerrar / redimensionar ---------- */
+function openDash(on) {
+  dashOpen = on;
+  document.body.classList.toggle('dash-open', on);
+  $('#dashBtn span').textContent = on ? 'Cerrar dashboard' : 'Dashboard';
+  if (on) renderDash();
+  setTimeout(() => map.invalidateSize({pan: false}), 280);
+}
+$('#dashBtn').onclick = () => openDash(!dashOpen);
+$('#dashClose').onclick = () => openDash(false);
+$('#clearBtn').onclick = () => { S.filters.clear(); S.zoneSel.clear(); S.viewOnly = false; $('#viewOnly').checked = false; refresh(); };
+$('#viewOnly').onchange = e => { S.viewOnly = e.target.checked; S.viewBounds = map.getBounds(); refresh(); };
+map.on('moveend', () => { S.viewBounds = map.getBounds(); if (S.viewOnly) refresh(); });
+(() => {
+  const sp = $('#splitter'); let drag = false, t;
+  sp.addEventListener('pointerdown', e => { drag = true; sp.setPointerCapture(e.pointerId); document.body.classList.add('dragging'); });
+  sp.addEventListener('pointermove', e => {
+    if (!drag) return;
+    const h = Math.min(innerHeight - 110, Math.max(160, innerHeight - e.clientY));
+    document.documentElement.style.setProperty('--dashH', h + 'px');
+    clearTimeout(t); t = setTimeout(() => map.invalidateSize({pan: false}), 60);
+  });
+  sp.addEventListener('pointerup', () => { drag = false; document.body.classList.remove('dragging'); map.invalidateSize({pan: false}); });
+})();
+
+/* ---------- exportar ---------- */
+$('#csvBtn').onclick = () => {
+  const fs = filteredFeats(); if (!fs.length) return toast('No hay registros para exportar');
+  const cols = S.fields.map(f => f.key);
+  const q = v => { const s = String(v ?? ''); return /[";\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+  const lines = [['Capa', 'Nombre', 'Latitud', 'Longitud', 'Zona', ...cols].map(q).join(';')];
+  for (const f of fs) lines.push([f.ly.name, f.properties.name || '', f.rep ? f.rep[1] : '', f.rep ? f.rep[0] : '',
+    (f.zones || []).map(z => S.zoneById.get(z)?.name).join(' | '), ...cols.map(c => f.properties[c])].map(q).join(';'));
+  download(`${$('#mapTitle').textContent.trim() || 'datos'}_filtrado.csv`, '﻿' + lines.join('\r\n'), 'text/csv;charset=utf-8');
+};
+$('#kmlBtn').onclick = () => {
+  const fs = filteredFeats(); if (!fs.length) return toast('No hay registros para exportar');
+  download(`${$('#mapTitle').textContent.trim() || 'mapa'}_filtrado.kml`, buildKml(fs, $('#mapTitle').textContent.trim()), 'application/vnd.google-earth.kml+xml');
+};
+function kmlColor(hex, a = 1) { const h = hex.replace('#', ''); return Math.round(a * 255).toString(16).padStart(2, '0') + h.slice(4, 6) + h.slice(2, 4) + h.slice(0, 2); }
+function geomKml(g) {
+  const c = a => a.map(p => p[0] + ',' + p[1]).join(' ');
+  switch (g.type) {
+    case 'Point': return `<Point><coordinates>${g.coordinates[0]},${g.coordinates[1]}</coordinates></Point>`;
+    case 'LineString': return `<LineString><tessellate>1</tessellate><coordinates>${c(g.coordinates)}</coordinates></LineString>`;
+    case 'Polygon': return `<Polygon>${g.coordinates.map((r, i) => { const t = i ? 'innerBoundaryIs' : 'outerBoundaryIs'; return `<${t}><LinearRing><coordinates>${c(r)}</coordinates></LinearRing></${t}>`; }).join('')}</Polygon>`;
+    case 'MultiPoint': case 'MultiLineString': case 'MultiPolygon':
+      return `<MultiGeometry>${g.coordinates.map(cc => geomKml({type: g.type.slice(5), coordinates: cc})).join('')}</MultiGeometry>`;
+    case 'GeometryCollection': return `<MultiGeometry>${g.geometries.map(geomKml).join('')}</MultiGeometry>`;
+  }
+  return '';
+}
+function buildKml(fs, title) {
+  const x = s => esc(s);
+  const styles = new Map();
+  const byLayer = new Map();
+  for (const f of fs) { if (!byLayer.has(f.ly)) byLayer.set(f.ly, []); byLayer.get(f.ly).push(f); }
+  const folders = [...byLayer.entries()].map(([ly, arr]) => `<Folder><name>${x(ly.name)}</name>` + arr.map(f => {
+    const ps = pathStyle(f), col = ps.color;
+    const sid = 's' + [col, ps.fillColor, ps.fillOpacity, ps.weight].join('_').replace(/[#.]/g, '');
+    if (!styles.has(sid)) styles.set(sid, `<Style id="${sid}"><IconStyle><color>${kmlColor(col)}</color><scale>1</scale><Icon><href>https://www.gstatic.com/mapspro/images/stock/503-wht-blank_maps.png</href></Icon></IconStyle><LineStyle><color>${kmlColor(col)}</color><width>${ps.weight}</width></LineStyle><PolyStyle><color>${kmlColor(ps.fillColor, ps.fillOpacity || .3)}</color></PolyStyle></Style>`);
+    const p = f.properties;
+    const data = Object.keys(p).filter(k => !STYLE_KEYS.has(k)).map(k => `<Data name="${x(k)}"><value>${x(p[k])}</value></Data>`).join('');
+    return `<Placemark><name>${x(p.name || '')}</name><styleUrl>#${sid}</styleUrl><ExtendedData>${data}</ExtendedData>${geomKml(f.geometry)}</Placemark>`;
+  }).join('') + '</Folder>').join('');
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>${x(title || 'Exportación')}</name>${[...styles.values()].join('')}${folders}</Document></kml>`;
+}
+
+/* ---------- buscador ---------- */
+async function doSearch() {
+  const q = $('#searchIn').value.trim(), box = $('#searchRes');
+  if (!q) { box.style.display = 'none'; return; }
+  const nq = norm(q), res = [];
+  for (const f of S.feats) {
+    const p = f.properties;
+    if (norm(p.name).includes(nq) || Object.keys(p).some(k => !STYLE_KEYS.has(k) && norm(p[k]).includes(nq))) { res.push(f); if (res.length >= 12) break; }
+  }
+  const render = geo => {
+    let h = '';
+    if (res.length) h += `<div class="sh">En las capas</div>` + res.map(f => {
+      const hit = f.properties.name || Object.keys(f.properties).map(k => !STYLE_KEYS.has(k) && norm(f.properties[k]).includes(nq) ? `${k}: ${f.properties[k]}` : null).find(Boolean);
+      return `<div class="si" data-f="${f.id}">${esc(String(hit).slice(0, 70))}<small>${esc(f.ly.name)}</small></div>`;
+    }).join('');
+    if (geo && geo.length) h += `<div class="sh">Direcciones</div>` + geo.map((g, i) => `<div class="si" data-g="${i}">${esc(g.display_name.split(',').slice(0, 3).join(','))}<small>${esc(g.type || '')}</small></div>`).join('');
+    if (!h) h = geo ? '<div class="si" style="cursor:default;color:#5f6368">Sin resultados</div>' : '<div class="si" style="cursor:default;color:#5f6368">Buscando dirección…</div>';
+    box.innerHTML = h; box.style.display = 'block';
+    box.onclick = e => {
+      const it = e.target.closest('.si'); if (!it) return;
+      if (it.dataset.f) { const f = S.feats.find(x => x.id === +it.dataset.f); if (f) focusFeature(f); }
+      else if (it.dataset.g != null && geo) { const g = geo[+it.dataset.g]; map.setView([+g.lat, +g.lon], 17); L.popup().setLatLng([+g.lat, +g.lon]).setContent(esc(g.display_name)).openOn(map); }
+      box.style.display = 'none';
+    };
+  };
+  render(null);
+  try {
+    const r = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=5&countrycodes=ar&accept-language=es&q=${encodeURIComponent(q)}`);
+    render(await r.json());
+  } catch { render([]); }
+}
+$('#searchBtn').onclick = doSearch;
+$('#searchIn').addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
+document.addEventListener('mousedown', e => { if (!$('#search').contains(e.target)) $('#searchRes').style.display = 'none'; });
+
+/* ---------- carga de archivos ---------- */
+$('#addBtn').onclick = () => $('#fileIn').click();
+$('#fileIn').onchange = e => { loadFiles(e.target.files); e.target.value = ''; };
+$('#fitAllBtn').onclick = () => fitLayers(S.layers.filter(l => l.visible));
+$('#collapseBtn').onclick = () => { $('#panel').classList.toggle('collapsed'); $('#collapseBtn').style.transform = $('#panel').classList.contains('collapsed') ? 'rotate(180deg)' : ''; };
+let dragN = 0;
+addEventListener('dragenter', e => { if (e.dataTransfer?.types?.includes('Files')) { dragN++; document.body.classList.add('dropping'); } });
+addEventListener('dragleave', () => { if (--dragN <= 0) { dragN = 0; document.body.classList.remove('dropping'); } });
+addEventListener('dragover', e => e.preventDefault());
+addEventListener('drop', e => { e.preventDefault(); dragN = 0; document.body.classList.remove('dropping'); if (e.dataTransfer.files.length) loadFiles(e.dataTransfer.files); });
+addEventListener('resize', () => { if (dashOpen) map.invalidateSize({pan: false}); });
+
+// celular: el selector de archivos sin filtro de tipo (Android oculta los .kml si se filtra) y dashboard más alto
+if (matchMedia('(pointer:coarse)').matches) $('#fileIn').removeAttribute('accept');
+if (innerWidth <= 760) document.documentElement.style.setProperty('--dashH', '62vh');
+renderPanel(); renderSub();
+</script>
+</body>
+</html>
