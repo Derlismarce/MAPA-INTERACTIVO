@@ -100,6 +100,13 @@ body.dash-open #dashBtn svg{fill:#fff}
 .pp .desc{margin-top:8px;color:#3c4043;font-size:12.5px}
 .pp .zbtn{margin-top:10px;border:1px solid var(--line);background:#fff;border-radius:16px;padding:5px 12px;cursor:pointer;font-size:12px;color:var(--blue)}
 .pp .zbtn:hover{background:#e8f0fe}
+.pp-f{display:flex;align-items:center;gap:2px;margin-top:10px;padding-top:8px;border-top:1px solid #f1f3f4;font-size:11.5px;color:var(--muted)}
+.pp-f span{flex:1}
+.pp-f button{border:0;background:none;width:30px;height:30px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.pp-f button:hover{background:var(--hover)}
+.pp-f button svg{width:19px;height:19px;fill:#5f6368}
+.pp-f button.del:hover svg{fill:#c5221f}
+.tact{background:none;border:0;color:#8ab4f8;font-weight:500;margin-left:16px;cursor:pointer;padding:0;font-size:13px;text-transform:uppercase}
 
 /* ---------- popover genérico ---------- */
 #pop{position:fixed;z-index:3000;background:#fff;border-radius:6px;box-shadow:0 4px 18px rgba(0,0,0,.25);display:none;min-width:200px;max-width:320px;max-height:70vh;overflow:auto}
@@ -244,6 +251,7 @@ body.dropping #drop{display:flex}
       <div class="pactions">
         <button class="lnk" id="addBtn"><svg viewBox="0 0 24 24"><path d="M11.99 18.54l-7.37-5.73L3 14.07l9 7 9-7-1.63-1.27zM12 16l7.36-5.73L21 9l-9-7-9 7 1.63 1.27L12 16z"/></svg>Añadir capa (KML/KMZ)</button>
         <button class="lnk" id="fitAllBtn"><svg viewBox="0 0 24 24"><path d="M3 5v4h2V5h4V3H5c-1.1 0-2 .9-2 2zm2 10H3v4c0 1.1.9 2 2 2h4v-2H5v-4zm14 4h-4v2h4c1.1 0 2-.9 2-2v-4h-2v4zm0-16h-4v2h4v4h2V5c0-1.1-.9-2-2-2z"/></svg>Ver todo</button>
+        <button class="lnk" id="newMapBtn" title="Quitar todas las capas y empezar de cero"><svg viewBox="0 0 24 24"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 14h-3v3h-2v-3H8v-2h3v-3h2v3h3v2zm-3-7V3.5L18.5 9H13z"/></svg>Nuevo mapa</button>
       </div>
       <div id="layers"></div>
       <div class="pfoot">
@@ -330,8 +338,13 @@ function parseDate(v) {
   if (m) return new Date(+m[1], +m[2] - 1, +m[3]);
   return null;
 }
-function toast(msg, ms = 3500) {
+function toast(msg, ms = 3500, action) {
   const t = $('#toast'); t.textContent = msg; t.style.display = 'block';
+  if (action) {
+    const b = document.createElement('button'); b.textContent = action.label; b.className = 'tact';
+    b.onclick = () => { t.style.display = 'none'; action.fn(); };
+    t.appendChild(b);
+  }
   clearTimeout(toast._t); toast._t = setTimeout(() => t.style.display = 'none', ms);
 }
 function download(name, text, type) {
@@ -454,17 +467,40 @@ function markerSvg(st, k = 1) {
     : `<circle cx="12" cy="12" r="10.5" fill="${c}" stroke="#fff" stroke-width="2"/>`;
   return {w, h: w, ax: w / 2, ay: w / 2, svg: `<svg width="${w}" height="${w}" viewBox="0 0 24 24">${bg}${glyphSvg(g, 12, 12, 14)}</svg>`};
 }
+// Los puntos se dibujan en un <canvas> (no un elemento HTML por punto): miles de puntos siguen fluidos al mover/zoom.
+const markerRenderer = L.canvas({pane: 'markerPane', padding: .5, tolerance: 2});
 const iconCache = new Map();
 function iconFor(st) {
   const key = [st.color, st.shape, st.glyph, st.size].join('|');
   let ic = iconCache.get(key);
   if (!ic) {
     const m = markerSvg(st, st.size);
-    ic = L.divIcon({className: 'mk', html: m.svg, iconSize: [m.w, m.h], iconAnchor: [m.ax, m.ay], popupAnchor: [0, -m.ay + 4]});
+    const img = new Image();
+    ic = {img, w: m.w, h: m.h, ax: m.ax, ay: m.ay};
+    img.onload = () => markerRenderer._map && markerRenderer._redraw();
+    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(m.svg.replace('<svg ', '<svg xmlns="http://www.w3.org/2000/svg" '));
     iconCache.set(key, ic);
   }
   return ic;
 }
+const CanvasMarker = L.CircleMarker.extend({
+  options: {radius: 1, stroke: false, fill: false, ic: null},
+  setIcon(ic) { this.options.ic = ic; this._project && this._map && (this._updateBounds(), this.redraw()); return this; },
+  _updateBounds() {
+    const ic = this.options.ic, p = this._point;
+    this._pxBounds = L.bounds(p.subtract([ic.ax, ic.ay]), p.add([ic.w - ic.ax, ic.h - ic.ay]));
+  },
+  _updatePath() {
+    const r = this._renderer, ic = this.options.ic;
+    if (!r._drawing || this._empty() || !ic.img.complete || !ic.img.naturalWidth) return;
+    r._ctx.drawImage(ic.img, this._point.x - ic.ax, this._point.y - ic.ay, ic.w, ic.h);
+  },
+  _containsPoint(p) { return this._pxBounds.pad(.1).contains(p); },
+});
+// Filtro de la sombra sobre el canvas de puntos (como las marcas de Google)
+const shadowCss = document.createElement('style');
+shadowCss.textContent = '.leaflet-marker-pane canvas{filter:drop-shadow(0 1px 1px rgba(0,0,0,.3))}';
+document.head.appendChild(shadowCss);
 // swatch chico para el panel
 function swatchHtml(ly, st) {
   if (ly.kind === 'point') return markerSvg({...st, size: st.shape === 'pin' ? .55 : .75}).svg;
@@ -587,11 +623,16 @@ async function loadFiles(files) {
   if (!files.length) { toast('Elegí archivos .kml o .kmz'); return; }
   $('#loading').classList.add('on');
   await new Promise(r => setTimeout(r, 30));
-  const added = [];
+  const added = [], replaced = [];
   for (const file of files) {
     try {
       const groups = parseKml(await readKmlText(file), file.name);
-      for (const g of groups) if (g.feats.length) added.push(addLayer(g.name, g.feats, g.file));
+      for (const g of groups) {
+        if (!g.feats.length) continue;
+        const old = S.layers.find(l => l.file === g.file && l.srcName === g.name);
+        if (old) { const r = replaceLayer(old, g.feats); added.push(r.ly); replaced.push(r); }
+        else added.push(addLayer(g.name, g.feats, g.file));
+      }
       if (!groups.some(g => g.feats.length)) toast(`${file.name}: no tiene elementos con geometría`);
     } catch (e) {
       console.error(e); toast(`No se pudo leer ${file.name}: ${e.message}`);
@@ -602,7 +643,10 @@ async function loadFiles(files) {
   if (added.length) {
     if (innerWidth <= 760 && !$('#panel').classList.contains('collapsed')) $('#collapseBtn').click();
     fitLayers(added);
-    toast(`${added.length} capa(s) cargada(s) · ${fmt(added.reduce((a, l) => a + l.features.length, 0))} elementos`);
+    const back = replaced.reduce((a, r) => a + Math.max(0, r.restored), 0);
+    toast(replaced.length
+      ? `${replaced.length} capa(s) actualizada(s) desde el KML${back ? ` · ${fmt(back)} elemento(s) recuperado(s)` : ''}`
+      : `${added.length} capa(s) cargada(s) · ${fmt(added.reduce((a, l) => a + l.features.length, 0))} elementos`, 5000);
   }
 }
 
@@ -635,10 +679,12 @@ function layerFields(ly) { // columnas categóricas de la capa para "Estilo de .
   return [...m.entries()].filter(([, s]) => s.size >= 1 && s.size <= 60 && !(s.size === 1 && s.has(EMPTY))).map(([k, s]) => ({key: k, n: s.size}));
 }
 
-function addLayer(name, feats, file) {
+// saved: estado guardado de la capa (al recuperar el mapa o al recargar el mismo KML)
+function addLayer(name, feats, file, saved) {
   const idx = S.layers.length;
   const ly = {
-    id: ++lidSeq, name, file, visible: true, analyzed: true, features: [],
+    id: ++lidSeq, name, srcName: saved?.srcName || name, file, visible: true, analyzed: true, features: [],
+    uid: saved?.uid || Date.now().toString(36) + Math.random().toString(36).slice(2, 8), dirty: !saved,
     style: {color: LAYER_COLORS[idx % LAYER_COLORS.length], shape: 'pin', glyph: 'none', size: 1, width: 3, fillOpacity: .3, labels: true},
     styleBy: null, cats: new Map(), catOrder: [], counts: {point: 0, line: 0, poly: 0},
     group: L.featureGroup().addTo(map),
@@ -662,12 +708,24 @@ function addLayer(name, feats, file) {
   if (guess) setStyleBy(ly, guess.key, true);
   else if (kmlVaried || (ly.hasKml && !hasPts)) ly.styleBy = '__kml';
   if (!hasPts && ly.counts.poly && !ly.counts.line) ly.analyzed = false; // capas solo-polígonos = zonas
+  if (saved) {
+    ly.name = saved.name || name;
+    ly.visible = saved.visible !== false;
+    ly.analyzed = saved.analyzed !== false;
+    Object.assign(ly.style, saved.style || {});
+    ly.styleBy = null; ly.cats = new Map(); ly.catOrder = [];
+    if (saved.styleBy === '__kml') ly.styleBy = '__kml';
+    else if (saved.styleBy) {
+      setStyleBy(ly, saved.styleBy, true);
+      for (const [v, c] of saved.cats || []) { const cc = ly.cats.get(v); if (cc) Object.assign(cc, c); }
+    }
+  }
   for (const f of ly.features) {
     f._lyr = L.geoJSON(f, {
-      pointToLayer: (ft, ll) => L.marker(ll, {icon: iconFor(featStyle(f))}),
+      pointToLayer: (ft, ll) => new CanvasMarker(ll, {ic: iconFor(featStyle(f)), renderer: markerRenderer}),
       style: () => pathStyle(f),
     });
-    f._lyr.bindPopup(() => popupHtml(f), {maxWidth: Math.min(360, innerWidth - 40), autoPanPaddingTopLeft: innerWidth > 760 ? [330, 60] : [10, 70]});
+    f._lyr.bindPopup(() => popupHtml(f), {maxWidth: 360});
   }
   applyLabels(ly);
   S.layers.push(ly);
@@ -727,6 +785,97 @@ function removeLayer(ly) {
   map.removeLayer(ly.group);
   S.layers = S.layers.filter(l => l !== ly);
   S.feats = S.feats.filter(f => f.ly !== ly);
+  removedUids.push(ly.uid);
+  afterLayersChange();
+}
+// Volver a cargar el mismo KML reemplaza la capa (vuelven los puntos borrados) manteniendo nombre, colores e íconos
+function replaceLayer(old, feats) {
+  const idx = S.layers.indexOf(old);
+  map.removeLayer(old.group);
+  S.layers.splice(idx, 1);
+  S.feats = S.feats.filter(f => f.ly !== old);
+  const ly = addLayer(old.srcName, feats, old.file, snapshot(old));
+  S.layers.splice(S.layers.indexOf(ly), 1);
+  S.layers.splice(idx, 0, ly);
+  ly.dirty = true;
+  return {ly, restored: ly.features.length - old.features.length};
+}
+
+/* =====================================================================
+   Guardado automático en el navegador (IndexedDB): el mapa se recupera al recargar la página
+   ===================================================================== */
+const DB = {
+  open() {
+    return this._db || (this._db = new Promise((res, rej) => {
+      const r = indexedDB.open('visor-kml-dashboard', 1);
+      r.onupgradeneeded = () => r.result.createObjectStore('kv');
+      r.onsuccess = () => res(r.result);
+      r.onerror = () => rej(r.error);
+    }));
+  },
+  async run(mode, fn) {
+    const db = await this.open();
+    return new Promise((res, rej) => {
+      const t = db.transaction('kv', mode), req = fn(t.objectStore('kv'));
+      t.oncomplete = () => res(req && req.result);
+      t.onerror = t.onabort = () => rej(t.error);
+    });
+  },
+  get(k) { return this.run('readonly', st => st.get(k)); },
+  set(k, v) { return this.run('readwrite', st => st.put(v, k)); },
+  del(k) { return this.run('readwrite', st => st.delete(k)); },
+  clear() { return this.run('readwrite', st => st.clear()); },
+};
+const removedUids = [];
+// restoring arranca en true: no se guarda nada hasta terminar de recuperar el mapa guardado
+let saveTimer = null, restoring = true, saving = Promise.resolve();
+function snapshot(ly) {
+  return {uid: ly.uid, name: ly.name, srcName: ly.srcName, file: ly.file, visible: ly.visible, analyzed: ly.analyzed,
+    style: {...ly.style}, styleBy: ly.styleBy,
+    cats: [...ly.cats].map(([v, c]) => [v, {color: c.color, glyph: c.glyph, visible: c.visible}])};
+}
+function scheduleSave() {
+  if (restoring) return;
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => { saving = saving.then(saveProject); }, 700);
+}
+async function saveProject() {
+  try {
+    for (const ly of S.layers) if (ly.dirty) {
+      ly.dirty = false;
+      await DB.set('feat:' + ly.uid, ly.features.map(f => ({type: 'Feature', geometry: f.geometry, properties: f.properties})));
+    }
+    await DB.set('meta', {v: 1, title: $('#mapTitle').textContent.trim(), base: $('#baseSel').value, layers: S.layers.map(snapshot)});
+    while (removedUids.length) { const u = removedUids.pop(); if (!S.layers.some(l => l.uid === u)) await DB.del('feat:' + u); }
+  } catch (e) {
+    console.warn(e);
+    toast('No se pudieron guardar los cambios en este navegador (¿modo incógnito o sin espacio?)', 6000);
+  }
+}
+async function restoreProject() {
+  let meta;
+  try { meta = await DB.get('meta'); } catch (e) { console.warn(e); return; }
+  if (meta?.title) $('#mapTitle').textContent = meta.title;
+  if (meta?.base && BASES[meta.base] && meta.base !== $('#baseSel').value) { $('#baseSel').value = meta.base; $('#baseSel').onchange({target: $('#baseSel')}); }
+  if (!meta?.layers?.length) return;
+  const ld = $('#loading'); ld.textContent = 'Recuperando tu mapa…'; ld.classList.add('on');
+  try {
+    for (const m of meta.layers) {
+      const feats = await DB.get('feat:' + m.uid);
+      if (feats && feats.length) addLayer(m.srcName || m.name, feats, m.file, m);
+    }
+    afterLayersChange();
+    fitLayers(S.layers.filter(l => l.visible));
+  } catch (e) { console.warn(e); toast('No se pudo recuperar el mapa guardado'); }
+  ld.classList.remove('on'); ld.textContent = 'Procesando archivo…';
+}
+async function newMap() {
+  if (!confirm('¿Empezar un mapa nuevo? Se quitan todas las capas y los cambios guardados en este navegador.')) return;
+  clearTimeout(saveTimer);
+  for (const ly of S.layers) map.removeLayer(ly.group);
+  S.layers = []; S.feats = []; S.filters.clear(); S.zoneSel.clear(); lastDeleted = null;
+  $('#mapTitle').textContent = 'Mapa sin título';
+  try { await DB.clear(); } catch (e) { console.warn(e); }
   afterLayersChange();
 }
 function fitLayers(lys) {
@@ -844,7 +993,7 @@ function refreshMap() {
     }
   }
 }
-function refresh() { refreshMap(); renderSub(); if (dashOpen) renderDash(); }
+function refresh() { refreshMap(); renderSub(); if (dashOpen) renderDash(); scheduleSave(); }
 function afterLayersChange() { computeZones(); computeFields(); renderPanel(); refresh(); }
 
 function toggleCatFilter(k, v) {
@@ -870,6 +1019,7 @@ function renderSub() {
   $('#mapSub').textContent = n ? `${n} capa${n > 1 ? 's' : ''} · ${fmt(e)} elementos` : 'Sin capas cargadas';
 }
 function renderPanel() {
+  scheduleSave();
   const box = $('#layers');
   if (!S.layers.length) {
     box.innerHTML = `<div class="empty"><svg viewBox="0 0 24 24" width="40" height="40" fill="#bdc1c6"><path d="M11.99 18.54l-7.37-5.73L3 14.07l9 7 9-7-1.63-1.27zM12 16l7.36-5.73L21 9l-9-7-9 7 1.63 1.27L12 16z"/></svg><br>
@@ -1043,12 +1193,64 @@ function popupHtml(f) {
   const desc = p.description && !p.__desc_parsed ? `<div class="desc">${sanitize(p.description)}</div>` : '';
   const zbtn = f.kind === 'poly' ? `<button class="zbtn" onclick="App.zoneFromPopup(${f.id})">${S.zoneSel.has(f.id) ? 'Quitar filtro de esta zona' : 'Filtrar dashboard por esta zona'}</button>` : '';
   const zs = f.zones && f.zones.length ? `<div class="pp-l">Zona: ${f.zones.map(z => esc(S.zoneById.get(z)?.name)).join(', ')}</div>` : '';
+  // que el globo quede arriba del pin y no lo tape
+  const pop = f._lyr.getPopup();
+  if (pop) {
+    const ic = f.kind === 'point' ? iconFor(featStyle(f)) : null;
+    pop.options.offset = L.point(0, ic ? -(ic.ay - 3) : 7);
+    // se calcula al abrir (al cargar la página el ancho de la ventana puede valer 0)
+    pop.options.maxWidth = Math.max(240, Math.min(360, innerWidth - 40));
+    pop.options.minWidth = Math.min(240, innerWidth - 60);
+    pop.options.autoPanPaddingTopLeft = innerWidth > 760 ? L.point(330, 60) : L.point(10, 70);
+  }
+  const coord = f.rep ? `${f.rep[1].toFixed(5)}, ${f.rep[0].toFixed(5)}` : '';
   return `<div class="pp"><div class="pp-t">${esc(p.name || '(sin nombre)')}</div><div class="pp-l">${esc(f.ly.name)}</div>${zs}
-    ${rows ? `<table>${rows}</table>` : ''}${media}${desc}${zbtn}</div>`;
+    ${rows ? `<table>${rows}</table>` : ''}${media}${desc}${zbtn}
+    <div class="pp-f"><span>📍 ${coord}</span>
+      <button title="Acercar" onclick="App.zoomTo(${f.id})"><svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0016 9.5 6.5 6.5 0 109.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14zm.5-7H9v2H7v1h2v2h1v-2h2V9h-2z"/></svg></button>
+      <button title="Eliminar lugar" class="del" onclick="App.deleteFeature(${f.id})"><svg viewBox="0 0 24 24"><path d="${GLYPHS.trash}"/></svg></button>
+    </div></div>`;
+}
+let lastDeleted = null;
+function deleteFeature(f) {
+  const ly = f.ly;
+  map.closePopup();
+  if (f._shown) ly.group.removeLayer(f._lyr);
+  f._shown = false;
+  lastDeleted = {f, ly, idxL: ly.features.indexOf(f), idxS: S.feats.indexOf(f)};
+  ly.features.splice(lastDeleted.idxL, 1);
+  S.feats.splice(lastDeleted.idxS, 1);
+  recountLayer(ly);
+  ly.dirty = true;
+  if (!ly.features.length) { map.removeLayer(ly.group); S.layers = S.layers.filter(l => l !== ly); removedUids.push(ly.uid); }
+  afterLayersChange();
+  toast(`Se eliminó “${f.properties.name || 'el elemento'}”`, 7000, {label: 'Deshacer', fn: undoDelete});
+}
+function undoDelete() {
+  const d = lastDeleted; if (!d) return;
+  lastDeleted = null;
+  if (!S.layers.includes(d.ly)) { S.layers.push(d.ly); d.ly.group.addTo(map); }
+  d.ly.features.splice(d.idxL, 0, d.f);
+  S.feats.splice(d.idxS, 0, d.f);
+  recountLayer(d.ly);
+  d.ly.dirty = true;
+  afterLayersChange();
+  toast('Elemento restaurado');
+}
+function recountLayer(ly) {
+  ly.counts = {point: 0, line: 0, poly: 0};
+  for (const f of ly.features) ly.counts[f.kind]++;
+  if (ly.styleBy && ly.styleBy !== '__kml') {
+    for (const c of ly.cats.values()) c.n = 0;
+    for (const f of ly.features) { const c = ly.cats.get(catVal(f.properties[ly.styleBy])); if (c) c.n++; }
+  }
 }
 window.App = {
   zoneFromPopup(id) { toggleZone(id); map.closePopup(); if (!dashOpen) openDash(true); toast(S.zoneSel.has(id) ? 'Filtro de zona aplicado' : 'Filtro de zona quitado'); },
+  zoomTo(id) { const f = S.feats.find(x => x.id === id); if (f) focusFeature(f); },
+  deleteFeature(id) { const f = S.feats.find(x => x.id === id); if (f) deleteFeature(f); },
 };
+document.addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && lastDeleted && !/INPUT|TEXTAREA/.test(document.activeElement.tagName) && !document.activeElement.isContentEditable) { e.preventDefault(); undoDelete(); } });
 
 /* =====================================================================
    Dashboard
@@ -1597,7 +1799,12 @@ addEventListener('resize', () => { if (dashOpen) map.invalidateSize({pan: false}
 // celular: el selector de archivos sin filtro de tipo (Android oculta los .kml si se filtra) y dashboard más alto
 if (matchMedia('(pointer:coarse)').matches) $('#fileIn').removeAttribute('accept');
 if (innerWidth <= 760) document.documentElement.style.setProperty('--dashH', '62vh');
+$('#mapTitle').addEventListener('input', scheduleSave);
+$('#baseSel').addEventListener('change', scheduleSave);
+$('#newMapBtn').onclick = newMap;
+navigator.storage?.persist?.().catch(() => {});
 renderPanel(); renderSub();
+restoreProject().finally(() => { restoring = false; });
 </script>
 </body>
 </html>
