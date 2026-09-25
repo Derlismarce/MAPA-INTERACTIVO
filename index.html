@@ -945,7 +945,9 @@ function computeFields() {
     else if (e.vals.size <= 150) type = 'cat';
     else type = 'text';
     const order = [...e.vals.keys()].sort((a, b) => e.vals.get(b) - e.vals.get(a));
-    fields.push({key: e.key, type, uniq: e.vals.size, order, rank: new Map(order.map((v, i) => [v, i])), filled: e.filled});
+    // stat: columna numérica que tiene sentido sumar/promediar (no coordenadas, IDs, códigos ni alturas de calle)
+    const stat = type === 'num' && !isCoordKey(e.key) && !isIdKey(e.key);
+    fields.push({key: e.key, type, stat, uniq: e.vals.size, order, rank: new Map(order.map((v, i) => [v, i])), filled: e.filled});
   }
   S.fields = fields;
   S.fieldMap = new Map(fields.map(f => [f.key, f]));
@@ -958,9 +960,13 @@ function computeFields() {
   if (!S.fieldMap.has(S.crossA) && S.crossA !== '__layer') S.crossA = pref.find(f => f.key !== S.dist)?.key || '__layer';
   if (!S.fieldMap.has(S.crossB) && S.crossB !== '__layer') S.crossB = S.dist || null;
   if (!S.fieldMap.has(S.dateField)) S.dateField = fields.find(f => f.type === 'date')?.key || null;
-  const isId = k => /^(id|fid|objectid|ogc_fid|gid|codigo|cod|id_.*|.*_id|cod_.*)$/i.test(k);
-  if (!S.fieldMap.has(S.numField)) S.numField = (fields.find(f => f.type === 'num' && !isId(f.key)) || fields.find(f => f.type === 'num'))?.key || null;
+  if (!S.fieldMap.get(S.numField)?.stat) S.numField = fields.find(f => f.stat)?.key || null;
 }
+
+const norm_k = k => norm(k).replace(/[\s.\-]+/g, '_');
+const isCoordKey = k => /(^|_)(lat|lon|lng|long|latitud|longitud|latitude|longitude|x|y|coord|coords|coordenada|coordenadas|este|norte|easting|northing)(_|$)/.test(norm_k(k))
+  || /latitud|longitud|latitude|longitude|coordenad/.test(norm_k(k));
+const isIdKey = k => /^(id|fid|gid|oid|objectid|ogc_fid|codigo|cod|nro|numero|num|n|smp|cp|codigo_postal)$|(^|_)(id|cod|codigo|nro|numero)(_|$)|^alt|altura/.test(norm_k(k));
 
 function getVal(f, k) {
   if (k === '__layer') return f.ly.name;
@@ -1318,10 +1324,10 @@ function topN(entries, n) {
   const rest = entries.slice(n - 1).reduce((a, e) => a + e[1], 0);
   return entries.slice(0, n - 1).concat([[`Otros (${entries.length - n + 1})`, rest, true]]);
 }
-function fieldOptions(sel, types = ['cat'], extra = true) {
+function fieldOptions(sel, types = ['cat'], extra = true, only = () => true) {
   const o = [];
   if (extra && S.layers.filter(l => l.analyzed).length) o.push(`<option value="__layer" ${sel === '__layer' ? 'selected' : ''}>Capa</option>`);
-  for (const f of S.fields) if (types.includes(f.type) && (f.type !== 'cat' || f.uniq >= 1))
+  for (const f of S.fields) if (types.includes(f.type) && only(f) && (f.type !== 'cat' || f.uniq >= 1))
     o.push(`<option value="${esc(f.key)}" ${sel === f.key ? 'selected' : ''}>${esc(f.key)}</option>`);
   return o.join('');
 }
@@ -1381,7 +1387,7 @@ function renderDash() {
       ${hasZones ? `<div class="card"><div class="ch"><h3>Registros por zona</h3><span class="x">clic = filtrar por zona</span></div><div class="cwrap"><canvas id="cZone"></canvas></div></div>` : ''}
       <div class="card"><div class="ch"><h3>Cruce</h3><select id="selA">${fieldOptions(S.crossA)}</select><span class="x">por</span><select id="selB">${fieldOptions(S.crossB)}</select></div><div class="cwrap"><canvas id="cCross"></canvas></div></div>
       ${dateF ? `<div class="card"><div class="ch"><h3>Evolución en el tiempo</h3><select id="selDate">${fieldOptions(S.dateField, ['date'], false)}</select></div><div class="cwrap" style="height:220px"><canvas id="cTime"></canvas></div></div>` : ''}
-      ${numF ? `<div class="card"><div class="ch"><h3>Columna numérica</h3><select id="selNum">${fieldOptions(S.numField, ['num'], false)}</select></div><div id="numStats"></div><div class="cwrap" style="height:170px"><canvas id="cNum"></canvas></div></div>` : ''}
+      ${numF ? `<div class="card"><div class="ch"><h3>Columna numérica</h3><select id="selNum">${fieldOptions(S.numField, ['num'], false, f => f.stat)}</select></div><div id="numStats"></div><div class="cwrap" style="height:170px"><canvas id="cNum"></canvas></div></div>` : ''}
       <div class="card wide"><div class="ch"><h3>Registros</h3></div>
         <div class="tblbar"><input type="search" id="tblQ" placeholder="Buscar en la tabla…" value="${esc(S.tableQ)}"><div class="pg" id="pg"></div></div>
         <div class="twrap" id="twrap"></div></div>
