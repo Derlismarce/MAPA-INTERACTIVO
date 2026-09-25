@@ -201,6 +201,8 @@ body.dropping #drop{display:flex}
 #loading{position:fixed;inset:0;background:rgba(255,255,255,.6);z-index:4500;display:none;align-items:center;justify-content:center;font-weight:500}
 #loading.on{display:flex}
 .leaflet-control-attribution{font-size:10px}
+/* Con zoom del navegador distinto de 100% quedan rayas finas entre mosaicos: se agranda cada uno medio píxel para que se solapen */
+.leaflet-tile-container img.leaflet-tile{width:256.6px!important;height:256.6px!important;mix-blend-mode:normal}
 
 #splitter{touch-action:none}
 @media (max-width:760px){
